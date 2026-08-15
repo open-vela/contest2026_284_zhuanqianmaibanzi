@@ -1,0 +1,39 @@
+Target: ESP32-P4X-Function-EV-Board
+Configuration: configs/velapoka
+Scope: UART/NSH, control GPIO, GPIO7/GPIO8 software I2C, GT911 probe,
+       /dev/input0 and /dev/velapoka
+Build date: 2026-08-10
+Build command:
+  ./build.sh vendor/openvela/boards/contest2026_284_board/configs/velapoka -j2
+Packaging tool: esptool.py v4.8.1
+
+Build result:
+  Compile: PASS
+  Link: PASS
+  ESP32-P4 elf2image: PASS
+
+Memory report:
+  tcm_idram_seg:       68 B / 8 KiB
+  irom_seg:        122476 B / 64 MiB
+  sram_seg:         36328 B / 978880 B
+  drom_seg:        147508 B / 64 MiB
+  extern_ram_seg:       0 B / 64 MiB
+
+Artifacts:
+  nuttx                  424120 bytes
+  SHA-256 2893b9ed5786e3afe07701d82fac71f3fcd9860419cbb356e68f38c8f4d7dcc5
+  nuttx.hex              464216 bytes
+  SHA-256 d06475f881758eeecea88ff8fc35142268c4fdba609cb671737e4bb9e0b2220c
+  vela_nuttx.bin         245356 bytes
+  SHA-256 3ddf906e8f2217648149b3da9e3e8d06c366a994ba4bc1751db2f73ee3ac6499
+
+ELF string audit:
+  /dev/velapoka: present
+  /dev/input0: present
+  VelaPoka BSP status log: present
+  GT911 product-ID log: present
+
+Not claimed by this build-only record:
+  GPIO electrical-level validation, I2C waveform validation and GT911 touch
+  event validation require the target board and 7-inch display assembly.
+  MIPI-DSI, MIPI-CSI, SDMMC, PSRAM allocation and Ethernet are deferred.

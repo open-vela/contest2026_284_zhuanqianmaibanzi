@@ -1,0 +1,5 @@
+/esp-hal-3rdparty/
+/*.o
+/*.d
+/.depend
+/Make.dep

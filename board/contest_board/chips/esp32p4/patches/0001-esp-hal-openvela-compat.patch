@@ -1,0 +1,333 @@
+diff --git a/components/esp_hw_support/esp_gpio_reserve.c b/components/esp_hw_support/esp_gpio_reserve.c
+index c2e5ec71c08..d4aa641b640 100644
+--- a/components/esp_hw_support/esp_gpio_reserve.c
++++ b/components/esp_hw_support/esp_gpio_reserve.c
+@@ -4,27 +4,58 @@
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ 
++#ifdef __NuttX__
++#include <nuttx/spinlock.h>
++#else
+ #include <stdatomic.h>
++#endif
+ #include "soc/soc_caps.h"
+ #include "esp_types.h"
+ #include "esp_bit_defs.h"
+ #include "esp_private/esp_gpio_reserve.h"
+ 
++#ifdef __NuttX__
++static uint64_t s_reserved_pin_mask = ~(SOC_GPIO_VALID_GPIO_MASK);
++#else
+ static _Atomic uint64_t s_reserved_pin_mask = ATOMIC_VAR_INIT(~(SOC_GPIO_VALID_GPIO_MASK));
++#endif
+ 
+ uint64_t esp_gpio_reserve(uint64_t gpio_mask)
+ {
++#ifdef __NuttX__
++    irqstate_t flags = enter_critical_section();
++    uint64_t old_mask = s_reserved_pin_mask;
++    s_reserved_pin_mask |= gpio_mask;
++    leave_critical_section(flags);
++    return old_mask;
++#else
+     return atomic_fetch_or(&s_reserved_pin_mask, gpio_mask);
++#endif
+ }
+ 
+ uint64_t esp_gpio_revoke(uint64_t gpio_mask)
+ {
++#ifdef __NuttX__
++    irqstate_t flags = enter_critical_section();
++    uint64_t old_mask = s_reserved_pin_mask;
++    s_reserved_pin_mask &= ~gpio_mask;
++    leave_critical_section(flags);
++    return old_mask;
++#else
+     return atomic_fetch_and(&s_reserved_pin_mask, ~gpio_mask);
++#endif
+ }
+ 
+ bool esp_gpio_is_reserved(uint64_t gpio_mask)
+ {
++#ifdef __NuttX__
++    irqstate_t flags = enter_critical_section();
++    bool reserved = (s_reserved_pin_mask & gpio_mask) != 0;
++    leave_critical_section(flags);
++    return reserved;
++#else
+     return atomic_load(&s_reserved_pin_mask) & gpio_mask;
++#endif
+ }
+ 
+ // TODO: IDF-6968 reserve the pins that not fanned out regarding the SiP version
+diff --git a/nuttx/esp32p4/include/irq.h b/nuttx/esp32p4/include/irq.h
+index ab0f0e02ace..56289d75dfe 100644
+--- a/nuttx/esp32p4/include/irq.h
++++ b/nuttx/esp32p4/include/irq.h
+@@ -652,6 +652,8 @@
+ 
+ #define NR_IRQS  (RISCV_NIRQ_INTERRUPTS + ESP_NIRQ_DEMUX + ESP_NIRQ_PERIPH + ESP_NIRQ_GPIO)
+ 
+-#if CONFIG_ARCH_NUSER_INTERRUPTS < (ESP_IRQ_DEMUX + 1)
+-#  error "CONFIG_ARCH_NUSER_INTERRUPTS is less than ESP_IRQ_DEMUX + 1. Please increase CONFIG_ARCH_NUSER_INTERRUPTS to at least ESP_IRQ_DEMUX + 1."
++#ifdef CONFIG_ARCH_MINIMAL_VECTORTABLE
++#  if CONFIG_ARCH_NUSER_INTERRUPTS < (ESP_IRQ_DEMUX + 1)
++#    error "CONFIG_ARCH_NUSER_INTERRUPTS is less than ESP_IRQ_DEMUX + 1. Please increase CONFIG_ARCH_NUSER_INTERRUPTS to at least ESP_IRQ_DEMUX + 1."
++#  endif
+ #endif
+diff --git a/nuttx/include/platform/os.h b/nuttx/include/platform/os.h
+index 118b35570f4..fad9d6a44d4 100644
+--- a/nuttx/include/platform/os.h
++++ b/nuttx/include/platform/os.h
+@@ -21,6 +21,7 @@
+ #include <semaphore.h>
+ #include <nuttx/clock.h>
+ #include <nuttx/sched.h>
++#include <nuttx/signal.h>
+ #include <nuttx/init.h>
+ #include <sched/sched.h>
+ 
+@@ -354,7 +355,7 @@ static inline void esp_os_task_delay_adapter(uint32_t ticks)
+   if (OSINIT_OS_READY())
+     {
+       useconds_t us = TICK2USEC(ticks);
+-      nxsched_usleep(us);
++      (void)nxsig_usleep(us);
+     }
+ }
+ 
+diff --git a/nuttx/src/platform/os.c b/nuttx/src/platform/os.c
+index 99470d7e7c0..b5bd2363c27 100644
+--- a/nuttx/src/platform/os.c
++++ b/nuttx/src/platform/os.c
+@@ -13,6 +13,8 @@
+ 
+ #include <debug.h>
+ #include <errno.h>
++#include <fcntl.h>
++#include <spawn.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+@@ -333,32 +335,6 @@ static esp_err_t esp_os_queue_receive_generic(esp_os_queue_handle_t queue,
+   return ret >= 0 ? ESP_OK : ESP_FAIL;
+ }
+ 
+-/****************************************************************************
+- * Name: isr_adapter_func
+- *
+- * Description:
+- *   Interrupt service routine adapter function.
+- *
+- * Input Parameters:
+- *   irq     - IRQ number.
+- *   context - Context (unused).
+- *   arg     - User argument.
+- *
+- * Returned Value:
+- *   Zero (OK).
+- *
+- ****************************************************************************/
+-
+-static int isr_adapter_func(int irq, FAR void *context, FAR void *arg)
+-{
+-  FAR struct intr_adapter_to_nuttx *isr_adapter_args =
+-    (FAR struct intr_adapter_to_nuttx *)arg;
+-
+-  isr_adapter_args->handler(isr_adapter_args->arg);
+-
+-  return 0;
+-}
+-
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+@@ -373,20 +349,15 @@ static int isr_adapter_func(int irq, FAR void *context, FAR void *arg)
+  *   handle - Interrupt handle.
+  *
+  * Returned Value:
+- *   ESP_OK on success.
++ *   ESP_ERR_NOT_SUPPORTED with the legacy NuttX interrupt allocator.
+  *
+  ****************************************************************************/
+ 
+ esp_err_t esp_os_intr_free(intr_handle_t handle)
+ {
+-  FAR esp_os_intr_handle_t *intr_handle =
+-    (FAR esp_os_intr_handle_t *)handle;
+-  int irq = intr_handle->irq;
+-  int cpuint = esp_get_cpuint(this_cpu(), irq);
+-
+-  esp_teardown_irq(ESP_IRQ2SOURCE(irq), cpuint);
++  (void)handle;
+ 
+-  return ESP_OK;
++  return ESP_ERR_NOT_SUPPORTED;
+ }
+ 
+ /****************************************************************************
+@@ -419,11 +390,9 @@ esp_err_t esp_os_intr_alloc(int source, int flags,
+  * Name: esp_os_intr_alloc_intrstatus
+  *
+  * Description:
+- *   Allocate an interrupt handler with interrupt status register.  Mirrors
+- *   the semantics of ESP-IDF's esp_intr_alloc_intrstatus(): the interrupt
+- *   is enabled before returning, unless ESP_INTR_FLAG_INTRDISABLED is set
+- *   in flags, in which case the caller is expected to enable it later via
+- *   esp_intr_enable()/up_enable_irq().
++ *   The legacy NuttX interrupt allocator does not expose an IDF-compatible
++ *   interrupt handle.  Keep this optional HAL path explicitly unsupported
++ *   until the allocator is migrated as a whole.
+  *
+  * Input Parameters:
+  *   source         - Interrupt source.
+@@ -435,7 +404,7 @@ esp_err_t esp_os_intr_alloc(int source, int flags,
+  *   ret_handle     - Pointer to receive the interrupt handle.
+  *
+  * Returned Value:
+- *   ESP_OK on success; error code on failure.
++ *   ESP_ERR_NOT_SUPPORTED.
+  *
+  ****************************************************************************/
+ 
+@@ -446,50 +415,19 @@ esp_err_t esp_os_intr_alloc_intrstatus(int source, int flags,
+                                         FAR void *arg,
+                                         FAR intr_handle_t *ret_handle)
+ {
+-  FAR struct intr_adapter_to_nuttx *isr_adapter_args;
+-  int irq = ESP_SOURCE2IRQ(source);
+-  int cpuint;
+-
+-  isr_adapter_args = kmm_calloc(1, sizeof(struct intr_adapter_to_nuttx));
+-  if (isr_adapter_args == NULL)
+-    {
+-      irqerr("Failed to kmm_calloc\n");
+-      return ESP_ERR_NO_MEM;
+-    }
+-
+-  isr_adapter_args->handler = handler;
+-  isr_adapter_args->arg     = arg;
+-
+-  cpuint = esp_setup_irq_with_flags_intrstatus(source, flags, intrstatusreg,
+-                                               intrstatusmask,
+-                                               isr_adapter_func,
+-                                               isr_adapter_args);
+-
+-  if (cpuint < 0)
+-    {
+-      irqerr("Failed to setup interrupt\n");
+-      return ESP_ERR_NOT_FOUND;
+-    }
+-
+-  *ret_handle = esp_get_handle(this_cpu(), irq);
+-
+-  if (*ret_handle == NULL)
+-    {
+-      irqerr("Failed to get handle\n");
+-      return ESP_ERR_NOT_FOUND;
+-    }
+-
+-  /* Honour ESP_INTR_FLAG_INTRDISABLED: return with the interrupt disabled
+-   * so the caller can enable it explicitly once its ISR context is fully
+-   * initialised (matches ESP-IDF's esp_intr_alloc() behaviour).
+-   */
+-
+-  if ((flags & ESP_INTR_FLAG_INTRDISABLED) == 0)
++  (void)source;
++  (void)flags;
++  (void)intrstatusreg;
++  (void)intrstatusmask;
++  (void)handler;
++  (void)arg;
++
++  if (ret_handle != NULL)
+     {
+-      up_enable_irq(irq);
++      *ret_handle = NULL;
+     }
+ 
+-  return ESP_OK;
++  return ESP_ERR_NOT_SUPPORTED;
+ }
+ 
+ /****************************************************************************
+@@ -1282,6 +1220,8 @@ struct task_wrapper_args_s
+ static int task_wrapper_entry(int argc, FAR char *argv[])
+ {
+   FAR struct task_wrapper_args_s *wrapper_args;
++  esp_os_task_function_t func;
++  FAR void *arg;
+   uintptr_t ptr;
+ 
+   /* argv[0] is the task name; argv[1] is the wrapper_args pointer as string */
+@@ -1294,8 +1234,10 @@ static int task_wrapper_entry(int argc, FAR char *argv[])
+   ptr = (uintptr_t)strtoul(argv[1], NULL, 0);
+   wrapper_args = (FAR struct task_wrapper_args_s *)ptr;
+ 
+-  wrapper_args->func(wrapper_args->arg);
++  func = wrapper_args->func;
++  arg  = wrapper_args->arg;
+   kmm_free(wrapper_args);
++  func(arg);
+   return 0;
+ }
+ 
+@@ -1307,12 +1249,21 @@ int esp_os_create_task_pinned_to_core(esp_os_task_function_t task_func,
+                                       esp_os_task_handle_t *task_handle,
+                                       int core_id)
+ {
++  posix_spawnattr_t attr;
+   FAR struct tcb_s *tcb;
+   FAR struct task_wrapper_args_s *wrapper_args;
+   FAR char *argv[2];
+   char ptr_buf[32];
+   int ret;
+ 
++#ifdef CONFIG_SMP
++  if (core_id != tskNO_AFFINITY &&
++      (core_id < 0 || core_id >= CONFIG_SMP_NCPUS))
++    {
++      return -1;
++    }
++#endif
++
+   wrapper_args = kmm_zalloc(sizeof(struct task_wrapper_args_s));
+   if (wrapper_args == NULL)
+     {
+@@ -1333,11 +1284,21 @@ int esp_os_create_task_pinned_to_core(esp_os_task_function_t task_func,
+       return -1;
+     }
+ 
+-  tcb->flags = TCB_FLAG_TTYPE_KERNEL | TCB_FLAG_FREE_TCB;
++  atomic_set(&tcb->flags, TCB_FLAG_TTYPE_KERNEL | TCB_FLAG_FREE_TCB);
++
++  ret = posix_spawnattr_init(&attr);
++  if (ret != 0)
++    {
++      kmm_free(wrapper_args);
++      kmm_free(tcb);
++      return -1;
++    }
++
++  posix_spawnattr_setstacksize(&attr, (size_t)stack_size);
++  posix_spawnattr_setpriority(&attr, priority);
+ 
+-  ret = nxtask_init(tcb, name, priority,
+-                    NULL, stack_size,
+-                    task_wrapper_entry, argv, NULL, NULL);
++  ret = nxtask_init(tcb, name, task_wrapper_entry, NULL, &attr, argv, NULL);
++  posix_spawnattr_destroy(&attr);
+   if (ret < 0)
+     {
+       kmm_free(wrapper_args);
+@@ -1346,7 +1307,7 @@ int esp_os_create_task_pinned_to_core(esp_os_task_function_t task_func,
+     }
+ 
+ #ifdef CONFIG_SMP
+-  if (core_id >= 0)
++  if (core_id != tskNO_AFFINITY)
+     {
+       cpu_set_t cpuset;
+       CPU_ZERO(&cpuset);
+

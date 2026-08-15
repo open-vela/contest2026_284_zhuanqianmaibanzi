@@ -1,0 +1,24 @@
+Target: ESP32-P4 Function EV Board, chip revision v3.2
+Image: vela_nuttx.bin
+Flash offset: 0x2000
+Console: UART0, 115200 8N1, GPIO37 TX / GPIO38 RX
+
+NuttShell (NSH)
+nsh> help
+Builtin Apps:
+    dumpstack    nsh          sh
+nsh> uname -a
+NuttX 0.0.0 5d51399cb05-dirty Aug  9 2026 risc-v esp32p4-function-ev-board
+nsh> ps
+  PID GROUP PRI POLICY   TYPE    NPX STATE    EVENT     SIGMASK            STACK COMMAND
+    0     0   0 FIFO     Kthread   - Ready              0000000000000000 0002016 CPU0 IDLE
+    1     1 100 RR       Task      - Running            0000000000000000 0001976 nsh_main
+nsh> uptime
+00:00:04 up  0:00, load average: 0.00, 0.00, 0.00
+
+Hard-reset stability:
+  RUN1: CHIP_USB_UART_RESET -> nsh> -> uptime OK
+  RUN2: CHIP_USB_UART_RESET -> nsh> -> uptime OK
+  RUN3: CHIP_USB_UART_RESET -> nsh> -> uptime OK
+
+No CHIP_LP_WDT_RESET or HP_SYS_HP_WDT_RESET occurred in the three final runs.

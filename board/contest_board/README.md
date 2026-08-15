@@ -1,4 +1,25 @@
-# contest_board（板级适配形态样例）
+# ESP32-P4 Function EV Board
 
-映射到 openvela `vendor/openvela/boards/contest2026_000_board`。
-队伍把板级适配代码放在本目录下。仅为占位骨架，不保证可启动。
+本目录由赛事 manifest 映射到：
+
+```text
+vendor/openvela/boards/contest2026_284_board
+```
+
+所有芯片和板级定制代码均保存在该 vendor 映射目录中，未把作品代码放入 NuttX 核心目录。
+
+## 组成
+
+- `chips/esp32p4/`：ESP32-P4 启动、中断、UART、系统定时器及 HAL 兼容层。
+- `common/`：Espressif 板级公共初始化和链接脚本。
+- `src/`、`include/`：Function EV Board 初始化及引脚定义。
+- `configs/nsh/defconfig`：赛事 L0 最小 NSH 配置。
+- `configs/velapoka/defconfig`：VelaPoka 基础外设配置。
+- `src/velapoka_bsp.c`：控制 GPIO、共享软件 I2C 和状态节点。
+- `src/velapoka_gt911.c`：GT911 触控探测与轮询 lower-half。
+- `scripts/Make.defs`：链接规则、simple boot 镜像生成和 `vela_nuttx.bin` 产物命名。
+- `upstream/nuttx/`：需要单独提交到公共 NuttX 仓的基线修复。
+
+构建、烧录和验证步骤见仓库根目录 [README](../../README.md)。
+
+当前只将 UART、控制 GPIO、I2C 和 GT911 纳入可运行基线。DSI、CSI、SDMMC、EMAC 和 PSRAM 只保留资源映射，不能把 HAL 源码存在等同于 NuttX 驱动就绪。
