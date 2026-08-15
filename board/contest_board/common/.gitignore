@@ -1,0 +1,7 @@
+etctmp
+etctmp.c
+.depend
+Make.dep
+*.o
+*.a
+scripts/*.tmp

@@ -1,0 +1,98 @@
+#
+# ESP32-P4 vendor chip configuration
+#
+
+config ARCH_CHIP_ESP32P4_VENDOR
+	bool
+	default y
+	select ARCH_RV32
+	select ARCH_RV_ISA_M
+	select ARCH_RV_ISA_A
+	select ARCH_RV_ISA_C
+	select ARCH_VECNOTIRQ
+	select ARCH_HAVE_BOOTLOADER if !ESPRESSIF_SIMPLE_BOOT
+	select ARCH_HAVE_I2CRESET
+	select ARCH_HAVE_MPU
+	select ARCH_HAVE_RESET
+	select ARCH_HAVE_RNG
+	select ARCH_HAVE_TICKLESS
+	select ARCH_HAVE_MULTICPU
+	select LIBC_ARCH_MEMCPY
+	select LIBC_ARCH_MEMCHR
+	select LIBC_ARCH_MEMCMP
+	select LIBC_ARCH_MEMMOVE
+	select LIBC_ARCH_MEMSET
+	select LIBC_ARCH_STRCHR
+	select LIBC_ARCH_STRCMP
+	select LIBC_ARCH_STRCPY
+	select LIBC_ARCH_STRLCPY
+	select LIBC_ARCH_STRNCPY
+	select LIBC_ARCH_STRLEN
+	select LIBC_ARCH_STRNLEN
+	select ARCH_HAVE_RAMFUNCS
+	select ONESHOT_COUNT if ONESHOT
+
+source "../vendor/openvela/boards/contest2026_284_board/chips/esp32p4/espressif/Kconfig"
+
+config ESP32P4_SELECTS_REV_LESS_V3
+	bool "Select ESP32-P4 revisions <3.0 (No >=3.x Support)"
+	default n
+
+choice ESP32P4_REV_MIN
+	prompt "Minimum Supported ESP32-P4 Revision"
+	default ESP32P4_REV_MIN_300
+
+config ESP32P4_REV_MIN_0
+	bool "Rev v0.0"
+	depends on ESP32P4_SELECTS_REV_LESS_V3
+
+config ESP32P4_REV_MIN_1
+	bool "Rev v0.1"
+	depends on ESP32P4_SELECTS_REV_LESS_V3
+
+config ESP32P4_REV_MIN_100
+	bool "Rev v1.0"
+	depends on ESP32P4_SELECTS_REV_LESS_V3
+
+config ESP32P4_REV_MIN_300
+	bool "Rev v3.0"
+	depends on !ESP32P4_SELECTS_REV_LESS_V3
+
+endchoice
+
+config ESP32P4_REV_MIN_FULL
+	int
+	default 0 if ESP32P4_REV_MIN_0
+	default 1 if ESP32P4_REV_MIN_1
+	default 100 if ESP32P4_REV_MIN_100
+	default 300 if ESP32P4_REV_MIN_300
+
+config ESP_REV_MIN_FULL
+	int
+	default ESP32P4_REV_MIN_FULL
+
+config ESP32P4_REV_MAX_FULL
+	int
+	default 399 if !ESP32P4_SELECTS_REV_LESS_V3
+	default 199 if ESP32P4_SELECTS_REV_LESS_V3
+
+config ESP_REV_MAX_FULL
+	int
+	default ESP32P4_REV_MAX_FULL
+
+config ESP_EFUSE_BLOCK_REV_MIN_FULL
+	int "Minimum Supported ESP32-P4 eFuse Block Revision"
+	default 0
+
+config ESP_EFUSE_BLOCK_REV_MAX_FULL
+	int
+	default 199
+
+config P4_REV3_MSPI_CRASH_AFTER_POWER_UP_WORKAROUND
+	bool
+	default y if ESP32P4_REV_MIN_300
+
+config P4_REV3_MSPI_WORKAROUND_SIZE
+	hex
+	default 0x100 if ESP32P4_REV_MIN_300
+	default 0

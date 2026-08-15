@@ -1,0 +1,19 @@
+diff --git a/include/nuttx/net/usrsock.h b/include/nuttx/net/usrsock.h
+index 7309e147632..5cc6a8f86b9 100644
+--- a/include/nuttx/net/usrsock.h
++++ b/include/nuttx/net/usrsock.h
+@@ -275,6 +275,7 @@ begin_packed_struct struct usrsock_message_socket_event_s
+ 
+ /* Global protection lock for usrsock socket */
+ 
++#ifdef CONFIG_NET_USRSOCK
+ DECLARE_PER_CPU_BMP(rmutex_t, g_usrsock_lock);
+ #define g_usrsock_lock this_cpu_var_bmp(g_usrsock_lock)
+ 
+@@ -428,4 +429,6 @@ int usrsock_request(FAR struct iovec *iov, unsigned int iovcnt);
+ 
+ void usrsock_register(void);
+ 
++#endif /* CONFIG_NET_USRSOCK */
++
+ #endif /* __INCLUDE_NUTTX_NET_USRSOCK_H */

@@ -1,11 +1,54 @@
 #
-# Contest 2026 team 000 board placeholder
+# ESP32-P4 Function EV Board vendor configuration
 #
 
-if ARCH_BOARD_CONTEST2026_000_BOARD
+config ESP32P4_FUNCTION_EV_BOARD_VENDOR
+	bool
+	default y
 
-config ARCH_BOARD_CONTEST2026_000_BOARD_TAG
-	string "Board tag"
-	default "contest2026_000_board"
+menu "VelaPoka visual assembly terminal"
 
-endif
+config VELAPOKA_BSP
+	bool "Enable the VelaPoka product BSP"
+	default n
+	select ESPRESSIF_I2C_BITBANG
+	---help---
+		Enable the board resource description, safe control GPIO setup and
+		the /dev/velapoka BSP status device.  The product configuration keeps
+		the proven UART/NSH recovery path available if an optional peripheral
+		fails during bring-up.  The initial GT911 port uses the board's
+		GPIO7/GPIO8 I2C wiring through the NuttX software-I2C lower half;
+		the ESP32-P4 hardware controller can replace it after its HAL port is
+		updated independently.
+
+config VELAPOKA_TOUCHSCREEN
+	bool "Enable GT911 polling touchscreen"
+	default y
+	depends on VELAPOKA_BSP
+	select INPUT
+	select INPUT_TOUCHSCREEN
+	select SCHED_LPWORK
+	---help---
+		Register the GT911 controller as a NuttX touchscreen lower half.  The
+		LCD adapter does not route GT911 INT to ESP32-P4, therefore the BSP
+		uses periodic I2C polling.
+
+if VELAPOKA_TOUCHSCREEN
+
+config VELAPOKA_TOUCHSCREEN_PATH
+	string "Touchscreen device path"
+	default "/dev/input0"
+
+config VELAPOKA_TOUCHSCREEN_SAMPLE_CACHES
+	int "Touchscreen sample cache entries"
+	range 4 128
+	default 32
+
+config VELAPOKA_TOUCHSCREEN_SAMPLE_DELAY
+	int "Touchscreen polling delay (ticks)"
+	range 1 100
+	default 10
+
+endif # VELAPOKA_TOUCHSCREEN
+
+endmenu

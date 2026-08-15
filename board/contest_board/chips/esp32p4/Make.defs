@@ -1,0 +1,24 @@
+############################################################################
+# ESP32-P4 vendor chip build definitions
+############################################################################
+
+# Vendor sources must take precedence over the older common implementation.
+
+VPATH := chip/espressif:chip:$(VPATH)
+
+include common/Make.defs
+
+# The generic mtimer implementation requires CONFIG_ONESHOT on this branch.
+
+ifneq ($(CONFIG_ONESHOT),y)
+  CMN_CSRCS := $(filter-out riscv_mtimer.c,$(CMN_CSRCS))
+endif
+
+include chip/espressif/Make.defs
+
+CHIP_CSRCS += esp_chip_rev.c
+
+INCLUDES := ${INCDIR_PREFIX}chip \
+            ${INCDIR_PREFIX}chip/espressif $(INCLUDES)
+
+CFLAGS += ${DEFINE_PREFIX}_RETARGETABLE_LOCKING
