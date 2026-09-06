@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <syslog.h>
-#include <unistd.h>
 
+#include <nuttx/arch.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/i2c/i2c_master.h>
 
@@ -20,6 +20,10 @@
 #include "espressif/esp_gpio.h"
 #include "espressif/esp_i2c_bitbang.h"
 #include <arch/board/velapoka_bsp.h>
+
+#ifdef CONFIG_ESPRESSIF_SPIRAM
+#  include "esp_psram.h"
+#endif
 
 #define VELAPOKA_STATUS_PATH  "/dev/velapoka"
 
@@ -30,18 +34,28 @@ static ssize_t velapoka_status_read(FAR struct file *filep,
                                     FAR char *buffer, size_t buflen)
 {
   char status[192];
+  size_t psram_size = 0;
   size_t available;
   size_t count;
   int len;
+
+#ifdef CONFIG_ESPRESSIF_SPIRAM
+  if (esp_psram_is_initialized())
+    {
+      psram_size = esp_psram_get_size();
+    }
+#endif
 
   len = snprintf(status, sizeof(status),
                  "{\"board\":\"ESP32-P4X-Function-EV-Board\","
                  "\"product\":\"VelaPoka\",\"bsp\":1,"
                  "\"capabilities\":\"0x%08lx\","
                  "\"ready\":\"0x%08lx\","
+                 "\"psram_size\":%lu,"
                  "\"lcd\":\"1024x600\",\"touch\":\"%s\"}\n",
                  (unsigned long)VELAPOKA_CAPABILITIES,
                  (unsigned long)g_velapoka_ready,
+                 (unsigned long)psram_size,
 #ifdef CONFIG_VELAPOKA_TOUCHSCREEN
                  CONFIG_VELAPOKA_TOUCHSCREEN_PATH
 #else
@@ -113,15 +127,22 @@ int velapoka_lcd_backlight(bool enable)
 int velapoka_lcd_reset(void)
 {
   esp_gpiowrite(BOARD_VELAPOKA_LCD_RESET, false);
-  usleep(20000);
+  up_mdelay(20);
   esp_gpiowrite(BOARD_VELAPOKA_LCD_RESET, true);
-  usleep(120000);
+  up_mdelay(120);
   return OK;
 }
 
 int velapoka_bsp_initialize(void)
 {
   int ret;
+
+#ifdef CONFIG_ESPRESSIF_SPIRAM
+  if (esp_psram_is_initialized())
+    {
+      velapoka_bsp_mark_ready(VELAPOKA_CAP_PSRAM);
+    }
+#endif
 
   /* Keep the backlight dark until a DSI framebuffer driver is ready. */
 
@@ -166,7 +187,27 @@ int velapoka_bsp_initialize(void)
   ret = velapoka_touchscreen_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: GT911 initialization failed: %d\n", ret);
+      syslog(LOG_WARNING,
+             "WARNING: GT911 initialization failed: %d; continuing\n",
+             ret);
+    }
+#endif
+
+#ifdef CONFIG_VELAPOKA_CAMERA
+  ret = velapoka_camera_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_WARNING,
+             "WARNING: SC2336 camera probe failed: %d; continuing\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_VELAPOKA_DISPLAY
+  ret = velapoka_display_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: MIPI-DSI display initialization failed: %d\n",
+             ret);
       return ret;
     }
 #endif

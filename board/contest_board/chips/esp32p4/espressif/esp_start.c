@@ -39,7 +39,6 @@
 #include "esp_lowputc.h"
 #include "esp_start.h"
 
-#include "esp_rom_sys.h"
 #include "esp_clk_internal.h"
 #include "esp_private/rtc_clk.h"
 #include "esp_cpu.h"
@@ -52,7 +51,9 @@
 #include "hal/cache_ll.h"
 #include "hal/cache_hal.h"
 #include "hal/rwdt_ll.h"
+#include "hal/lpwdt_ll.h"
 #include "soc/ext_mem_defs.h"
+#include "soc/lp_wdt_reg.h"
 #include "soc/reg_base.h"
 #include "spi_flash_mmap.h"
 #include "rom/cache.h"
@@ -69,6 +70,7 @@
 
 #ifdef CONFIG_ESPRESSIF_SIMPLE_BOOT
 #include "esp_rom_serial_output.h"
+#include "rom/uart.h"
 #include "esp_app_format.h"
 #endif
 
@@ -76,6 +78,8 @@
 #include "bootloader_flash_priv.h"
 #include "esp_private/startup_internal.h"
 #include "esp_private/spi_flash_os.h"
+#include "esp_private/mspi_timing_tuning.h"
+#include "bootloader_flash_config.h"
 #ifdef CONFIG_ESPRESSIF_SPIRAM
 #  include "esp_psram.h"
 #  include "esp_private/esp_psram_extram.h"
@@ -427,6 +431,44 @@ static void IRAM_ATTR NOINLINE_ATTR recalib_bbpll(void)
 #endif
 
 /****************************************************************************
+ * Name: esp_set_cpu_frequency
+ *
+ * Description:
+ *   Switch only the CPU clock after PSRAM training.  The complete
+ *   esp_clk_init() path also recalibrates the RTC clocks and is not safe in
+ *   this simple-boot sequence after external RAM has been enabled.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ESPRESSIF_ESP32P4
+static void esp_set_cpu_frequency(void)
+{
+  rtc_cpu_freq_config_t old_config;
+  rtc_cpu_freq_config_t new_config;
+  uint32_t old_freq_mhz;
+
+  rtc_clk_cpu_freq_get_config(&old_config);
+  old_freq_mhz = old_config.freq_mhz;
+
+  if (old_freq_mhz == CONFIG_ESPRESSIF_CPU_FREQ_MHZ)
+    {
+      return;
+    }
+
+  if (!rtc_clk_cpu_freq_mhz_to_config(CONFIG_ESPRESSIF_CPU_FREQ_MHZ,
+                                      &new_config))
+    {
+      PANIC();
+    }
+
+  esp_rom_output_tx_wait_idle(CONFIG_ESP_CONSOLE_ROM_SERIAL_PORT_NUM);
+  rtc_clk_cpu_freq_set_config(&new_config);
+  esp_cpu_set_cycle_count((uint64_t)esp_cpu_get_cycle_count() *
+                          CONFIG_ESPRESSIF_CPU_FREQ_MHZ / old_freq_mhz);
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -505,6 +547,7 @@ void __esp_start(void)
       ets_printf("Hardware init failed, aborting\n");
       while (true);
     }
+
 #endif
 
   /* Initialize the per CPU areas */
@@ -562,9 +605,28 @@ void __esp_start(void)
 
   /* Configure SPI Flash chip state */
 
+  bootloader_flash_update_id();
   spi_flash_init_chip_state();
+  mspi_timing_flash_tuning();
 
   esp_mmu_map_init();
+
+  /* This only updates the GPIO reservation mask.  It must run before PSRAM
+   * training; accessing the shared MSPI pin metadata after the external RAM
+   * mapping has been enabled stalls this simple-boot path.
+   */
+
+  esp_mspi_pin_reserve();
+
+  wdt_hal_context_t rwdt_ctx = RWDT_HAL_CONTEXT_DEFAULT();
+  wdt_hal_write_protect_disable(&rwdt_ctx);
+  wdt_hal_set_flashboot_en(&rwdt_ctx, false);
+  wdt_hal_disable(&rwdt_ctx);
+  wdt_hal_write_protect_enable(&rwdt_ctx);
+
+  REG_WRITE(LP_WDT_SWD_WPROTECT_REG, LP_WDT_SWD_WKEY_VALUE);
+  REG_SET_BIT(LP_WDT_SWD_CONFIG_REG, LP_WDT_SWD_DISABLE);
+  REG_WRITE(LP_WDT_SWD_WPROTECT_REG, 0);
 
 #ifdef CONFIG_ESPRESSIF_SPIRAM
   ret = esp_psram_chip_init();
@@ -589,13 +651,14 @@ void __esp_start(void)
 #  endif
 #endif
 
-  /* Configures the CPU clock, RTC slow and fast clocks, and performs
-   * RTC slow clock calibration.
+  /* Keep the trained MSPI/PSRAM clock tree intact and change only the CPU
+   * clock.  The bootloader intentionally runs at 100 MHz, whereas the DPI
+   * path needs the configured application frequency for PSRAM bandwidth.
    */
 
-  esp_clk_init();
-
-  esp_mspi_pin_reserve();
+#ifdef CONFIG_ESPRESSIF_ESP32P4
+  esp_set_cpu_frequency();
+#endif
 
   bootloader_init_mem();
 
@@ -629,7 +692,6 @@ void __esp_start(void)
 
   riscv_earlyserialinit();
 #endif
-
   esp_chip_revision_check();
 
   showprogress("A");
@@ -639,17 +701,6 @@ void __esp_start(void)
   esp_setup_syscall_table();
 
   showprogress("B");
-
-  /* The 2nd stage bootloader enables RTC WDT to monitor any issues that may
-   * prevent the startup sequence from finishing correctly. Hence disable it
-   * as NuttX is about to start.
-   */
-
-  wdt_hal_context_t rwdt_ctx = RWDT_HAL_CONTEXT_DEFAULT();
-  wdt_hal_write_protect_disable(&rwdt_ctx);
-  wdt_hal_set_flashboot_en(&rwdt_ctx, false);
-  wdt_hal_disable(&rwdt_ctx);
-  wdt_hal_write_protect_enable(&rwdt_ctx);
 
   showprogress("C");
 

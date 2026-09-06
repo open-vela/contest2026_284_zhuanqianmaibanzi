@@ -20,6 +20,14 @@
 
 STORAGETMP = $(if $(wildcard $(NXTMPDIR)/.*),y,)
 
+# The simple-boot image is entered directly from ROM-loaded RAM segments.
+# Keep the imported ESP-IDF bootloader support from treating it as a second
+# stage flash application and repeating memory/MMU initialization.
+
+ifeq ($(CONFIG_ESPRESSIF_SIMPLE_BOOT),y)
+CFLAGS += -DCONFIG_APP_BUILD_TYPE_RAM=1
+endif
+
 # The start-up, "head", file. May be either a .S or a .c file.
 
 HEAD_ASRC   = esp_head.S
@@ -98,6 +106,10 @@ ifeq ($(CONFIG_ESPRESSIF_TEMP),y)
 	CHIP_CSRCS += esp_temperature_sensor.c
 endif
 
+ifeq ($(CONFIG_ESPRESSIF_MIPI_DSI),y)
+	CHIP_CSRCS += esp_mipi_dsi.c
+endif
+
 ifeq ($(CONFIG_ESPRESSIF_I2C),y)
 	ifeq ($(CONFIG_ESPRESSIF_I2C_PERIPH),y)
 		CHIP_CSRCS += esp_i2c.c
@@ -138,6 +150,10 @@ ifeq ($(CONFIG_ESP_MCPWM),y)
 	CHIP_CSRCS += esp_mcpwm.c
 endif
 
+ifeq ($(CONFIG_ESPRESSIF_EMAC),y)
+	CHIP_CSRCS += esp_emac.c
+endif
+
 # Required for initialization hooks on common code
 
 LDFLAGS += -u esp_system_include_startup_funcs
@@ -154,6 +170,15 @@ ifndef ESP_HAL_3RDPARTY_VERSION
 	ESP_HAL_3RDPARTY_VERSION = 8d0a898910084206721a0892ab093021bca1496a
 endif
 
+ESP_HOSTED_REPO = esp-hosted
+ESP_HOSTED_VERSION = 0.0.6
+ESP_HOSTED_COMMIT = 65ebfacb7608889fe854e3442817e1998e4a4d9e
+ESP_HOSTED_SHA256 = 5ce9baaf68d38c9042fc38bb15961a170d90ea7389e070180a4c29fd64be47c9
+ESP_HOSTED_URL = https://github.com/espressif/esp-hosted/archive/$(ESP_HOSTED_COMMIT).zip
+PROTOBUF_C_COMMIT = abc67a11c6db271bedbb9f58be85d6f4e2ea8389
+PROTOBUF_C_SHA256 = 1b024383e6f3082e69a16ae4a45e5c900e618729476e6d8e67284beef3298be2
+PROTOBUF_C_URL = https://github.com/protobuf-c/protobuf-c/archive/$(PROTOBUF_C_COMMIT).zip
+
 ifndef ESP_HAL_3RDPARTY_URL
 	ESP_HAL_3RDPARTY_URL = https://github.com/espressif/esp-hal-3rdparty.git
 endif
@@ -165,8 +190,9 @@ endif
 	GIT_DEPTH_PARAMETER = --depth=$(GIT_DEPTH)
 endif
 
-# When set USE_NXTMPDIR_ESP_REPO_DIRECTLY=y, will directly use esp-hal-3rdparty
-# under nxtmpdir without CHECK_COMMITSHA, reset, checkout and update.
+# When set USE_NXTMPDIR_ESP_REPO_DIRECTLY=y, copy esp-hal-3rdparty directly
+# from nxtmpdir.  The staged copy is still reset to ESP_HAL_3RDPARTY_VERSION
+# and patched below so cached and freshly cloned builds use the same baseline.
 
 USE_NXTMPDIR_ESP_REPO_DIRECTLY ?= y
 
@@ -190,17 +216,24 @@ endif
 chip/$(ESP_HAL_3RDPARTY_REPO):
 	$(Q) echo "Cloning Espressif HAL for 3rd Party Platforms"
 	$(Q) $(call CLONE_ESP_HAL_3RDPARTY_REPO)
-ifneq ($(USE_NXTMPDIR_ESP_REPO_DIRECTLY),y)
 	$(Q) echo "Espressif HAL for 3rd Party Platforms: ${ESP_HAL_3RDPARTY_VERSION}"
 	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) checkout --quiet $(ESP_HAL_3RDPARTY_VERSION)
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) reset --quiet --hard \
+		$(ESP_HAL_3RDPARTY_VERSION)
 	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) submodule --quiet update \
 		--init $(GIT_DEPTH_PARAMETER) components/mbedtls/mbedtls
 ifeq ($(CONFIG_ARCH_CHIP_ESP32P4_VENDOR),y)
 	$(Q) echo "Applying ESP32-P4 OpenVela compatibility patch"
 	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) apply \
 		../patches/0001-esp-hal-openvela-compat.patch
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) apply \
+		../patches/0002-nuttx-enable-interrupt-adapter.patch
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) apply \
+		../patches/0003-nuttx-freertos-api-compat.patch
+	$(Q) git -C chip/$(ESP_HAL_3RDPARTY_REPO) apply \
+		../patches/0004-nuttx-shared-interrupt-adapter.patch
 endif
-endif
+
 ifeq ($(CONFIG_ESP_WIRELESS),y)
 ifneq ($(USE_NXTMPDIR_ESP_REPO_DIRECTLY),y)
 	$(Q) echo "Espressif HAL for 3rd Party Platforms: initializing submodules..."
@@ -209,6 +242,26 @@ ifneq ($(USE_NXTMPDIR_ESP_REPO_DIRECTLY),y)
 endif
 	$(Q) echo "Applying patches..."
 	$(Q) cd chip/$(ESP_HAL_3RDPARTY_REPO)/components/mbedtls/mbedtls && git apply ../../../nuttx/patches/components/mbedtls/mbedtls/*.patch
+endif
+
+ifeq ($(CONFIG_VELAPOKA_WIFI),y)
+chip/$(ESP_HOSTED_REPO):
+	$(Q) echo "Downloading ESP-Hosted $(ESP_HOSTED_VERSION)"
+	$(Q) curl -L -Ss '$(ESP_HOSTED_URL)' -o esp-hosted.zip
+	$(Q) echo '$(ESP_HOSTED_SHA256)  esp-hosted.zip' | sha256sum -c -
+	$(Q) unzip -q esp-hosted.zip
+	$(Q) mv esp-hosted-$(ESP_HOSTED_COMMIT) chip/$(ESP_HOSTED_REPO)
+	$(Q) $(call DELFILE,esp-hosted.zip)
+	$(Q) echo "Downloading ESP-Hosted protobuf-c dependency"
+	$(Q) curl -L -Ss '$(PROTOBUF_C_URL)' -o protobuf-c.zip
+	$(Q) echo '$(PROTOBUF_C_SHA256)  protobuf-c.zip' | sha256sum -c -
+	$(Q) unzip -q protobuf-c.zip
+	$(Q) $(call DELDIR,chip/$(ESP_HOSTED_REPO)/common/protobuf-c)
+	$(Q) mv protobuf-c-$(PROTOBUF_C_COMMIT) \
+		chip/$(ESP_HOSTED_REPO)/common/protobuf-c
+	$(Q) $(call DELFILE,protobuf-c.zip)
+	$(Q) patch -d chip/$(ESP_HOSTED_REPO) -p1 \
+		-i ../patches/0006-esp-hosted-openvela-port.patch
 endif
 
 include common$(DELIM)espressif$(DELIM)Bootloader.mk
@@ -221,6 +274,13 @@ CFLAGS += -Wno-undef -Wno-unused-variable -fno-jump-tables -fno-tree-switch-conv
 
 CHIP_SERIES = $(patsubst "%",%,$(CONFIG_ESPRESSIF_CHIP_SERIES))
 
+# Keep clean/reconfigure targets usable when an old .config predates the
+# ESPRESSIF chip-series choice.  The custom chip directory is P4-only.
+
+ifeq ($(strip $(CHIP_SERIES)),)
+  CHIP_SERIES = esp32p4
+endif
+
 include chip/hal_${CHIP_SERIES}.mk
 
 ifeq ($(CONFIG_ESP_WIRELESS),y)
@@ -231,10 +291,15 @@ context:: chip/$(ESP_HAL_3RDPARTY_REPO)
 	$(call COPYFILE,chip/$(ESP_HAL_3RDPARTY_REPO)/components/soc/$(CHIP_SERIES)/include/soc/gpio_sig_map.h,../include/chip/)
 	$(call COPYFILE,chip/$(ESP_HAL_3RDPARTY_REPO)/nuttx/$(CHIP_SERIES)/include/irq.h,../include/chip/)
 
+ifeq ($(CONFIG_VELAPOKA_WIFI),y)
+context:: chip/$(ESP_HOSTED_REPO)
+endif
+
 distclean::
 	$(call DELFILE,../include/chip/gpio_sig_map.h)
 	$(call DELFILE,../include/chip/irq.h)
 	$(call DELDIR,chip/$(ESP_HAL_3RDPARTY_REPO))
+	$(call DELDIR,chip/$(ESP_HOSTED_REPO))
 
 INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)common$(DELIM)espressif
 INCLUDES += ${INCDIR_PREFIX}$(ARCH_SRCDIR)$(DELIM)common$(DELIM)espressif$(DELIM)platform_include

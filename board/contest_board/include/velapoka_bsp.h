@@ -24,6 +24,7 @@ struct i2c_master_s;
 #define VELAPOKA_CAP_MICROSD       (1u << 6)
 #define VELAPOKA_CAP_ETHERNET      (1u << 7)
 #define VELAPOKA_CAP_CONTROL_GPIO  (1u << 8)
+#define VELAPOKA_CAP_WIFI          (1u << 9)
 
 #define VELAPOKA_CAPABILITIES      (VELAPOKA_CAP_UART | \
                                     VELAPOKA_CAP_PSRAM | \
@@ -33,7 +34,8 @@ struct i2c_master_s;
                                     VELAPOKA_CAP_MIPI_CSI | \
                                     VELAPOKA_CAP_MICROSD | \
                                     VELAPOKA_CAP_ETHERNET | \
-                                    VELAPOKA_CAP_CONTROL_GPIO)
+                                    VELAPOKA_CAP_CONTROL_GPIO | \
+                                    VELAPOKA_CAP_WIFI)
 
 /* Bits in the ready mask use the same values as the capability mask. */
 
@@ -44,10 +46,16 @@ struct i2c_master_s *velapoka_i2c_initialize(void);
 
 int velapoka_lcd_reset(void);
 int velapoka_lcd_backlight(bool enable);
+int velapoka_display_initialize(void);
 int velapoka_bsp_initialize(void);
 
 #ifdef CONFIG_VELAPOKA_TOUCHSCREEN
 int velapoka_touchscreen_initialize(void);
+#endif
+
+#ifdef CONFIG_VELAPOKA_CAMERA
+int velapoka_camera_initialize(void);
+int velapoka_camera_set_stream(bool enable);
 #endif
 
 #endif

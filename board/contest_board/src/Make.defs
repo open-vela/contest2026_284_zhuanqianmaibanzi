@@ -24,12 +24,68 @@ include $(TOPDIR)/Make.defs
 
 CSRCS = esp32p4_boot.c esp32p4_bringup.c
 
+ifeq ($(CONFIG_ESPRESSIF_EMAC),y)
+  CSRCS += esp32p4_ethernet.c
+endif
+
 ifeq ($(CONFIG_VELAPOKA_BSP),y)
   CSRCS += velapoka_bsp.c
 endif
 
 ifeq ($(CONFIG_VELAPOKA_TOUCHSCREEN),y)
   CSRCS += velapoka_gt911.c
+endif
+
+ifeq ($(CONFIG_VELAPOKA_DISPLAY),y)
+  CSRCS += velapoka_display.c
+endif
+
+ifeq ($(CONFIG_VELAPOKA_CAMERA),y)
+  CSRCS += velapoka_sc2336.c
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)upper_hal_cam$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)upper_hal_cam$(DELIM)csi$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)upper_hal_isp$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hal_cam$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hal_cam$(DELIM)esp32p4$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)hal$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)hal$(DELIM)platform_port$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)heap$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)soc$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)soc$(DELIM)esp32p4$(DELIM)include
+  ifeq ($(CONFIG_ESP32P4_SELECTS_REV_LESS_V3),y)
+    CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)soc$(DELIM)esp32p4$(DELIM)register$(DELIM)hw_ver1
+  else
+    CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)soc$(DELIM)esp32p4$(DELIM)register$(DELIM)hw_ver3
+  endif
+endif
+
+ifeq ($(CONFIG_VELAPOKA_WIFI),y)
+  CSRCS += velapoka_hosted_sdio.c velapoka_esp_hosted.c
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)upper_hal_sd_intf$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)upper_hal_sdmmc$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hal_sd$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hal_sd$(DELIM)esp32p4$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hal_gpio$(DELIM)esp32p4$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_event$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)log$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_rom$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_rom$(DELIM)esp32p4$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_wifi$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_wifi$(DELIM)include$(DELIM)local
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)nuttx$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hw_support$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)riscv$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_system$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)common$(DELIM)espressif
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)host
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)host$(DELIM)port
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)host$(DELIM)drivers$(DELIM)transport
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)host$(DELIM)drivers$(DELIM)mempool
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)host$(DELIM)drivers$(DELIM)rpc$(DELIM)wrap
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)host$(DELIM)utils
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hosted$(DELIM)common$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)soc$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)soc$(DELIM)esp32p4$(DELIM)include
 endif
 
 ifeq ($(CONFIG_BOARDCTL),y)
@@ -51,3 +107,8 @@ endif
 DEPPATH += --dep-path board
 VPATH += :board
 CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_hw_support$(DELIM)ldo$(DELIM)include
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_common$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_psram$(DELIM)include
+  CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)components$(DELIM)esp_mm$(DELIM)include
+CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)chip$(DELIM)esp-hal-3rdparty$(DELIM)nuttx$(DELIM)esp32p4$(DELIM)include
