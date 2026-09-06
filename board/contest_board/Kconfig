@@ -33,6 +33,72 @@ config VELAPOKA_TOUCHSCREEN
 		LCD adapter does not route GT911 INT to ESP32-P4, therefore the BSP
 		uses periodic I2C polling.
 
+config VELAPOKA_DISPLAY
+	bool "Enable EK79007 MIPI-DSI display bring-up"
+	default y
+	depends on VELAPOKA_BSP
+	select ESPRESSIF_MIPI_DSI
+	select DRIVERS_VIDEO
+	select VIDEO_FB
+	select FB_UPDATE
+	---help---
+		Power the ESP32-P4 D-PHY, initialize the EK79007 panel, allocate an
+		RGB888 framebuffer and register it as /dev/fb0.  The DSI hardware
+		color-bar generator remains available as a fallback if framebuffer
+		allocation or registration fails during bring-up.
+
+config VELAPOKA_CAMERA
+	bool "Enable AS-AG638A32M2-50 (SC2336) camera"
+	default n
+	depends on VELAPOKA_BSP
+	select DRIVERS_VIDEO
+	select VIDEO_STREAM
+	select SCHED_HPWORK
+	---help---
+		Enable bring-up of the SC2336 MIPI-CSI camera module fitted to the
+		Function EV Board.  The reference application uses two-lane RAW10
+		at 1280x720 and 30 frames per second.  The first bring-up stage
+		verifies the SCCB connection by reading PID 0xcb3a at address 0x30.
+		The sensor is registered as /dev/video0 using packed BGGR RAW10.
+		The CSI capability is marked ready after the first completed frame.
+
+config VELAPOKA_SDCARD
+	bool "Enable MicroSD card (hardware SPI mode)"
+	default n
+	select ESPRESSIF_SPI2
+	select ESPRESSIF_SPI_SWCS
+	select MMCSD
+	select MMCSD_SPI
+	select FS_FAT
+	---help---
+		Register the on-board MicroSD socket as /dev/mmcsd0 using the
+		ESP32-P4 SPI2 lower half with GPIO matrix routing.
+		The wiring follows Espressif's official BSP: CLK=GPIO43,
+		MOSI/CMD=GPIO44, MISO/D0=GPIO39 and CS/D3=GPIO42.
+
+config VELAPOKA_WIFI
+	bool "Enable ESP32-C6 ESP-Hosted Wi-Fi"
+	default n
+	depends on VELAPOKA_BSP
+	select NET
+	select DRIVERS_WIRELESS
+	select DRIVERS_IEEE80211
+	select NETDEV_WIRELESS_IOCTL
+	select SCHED_LPWORK
+	---help---
+		Register the on-board ESP32-C6 as wlan0 using ESP-Hosted 0.0.6
+		over the ESP32-P4 SDIO host.  This option provides only the NuttX
+		network driver and wireless ioctls; it does not add a Wi-Fi app.
+
+if VELAPOKA_WIFI
+
+config VELAPOKA_WIFI_SDIO_FREQUENCY
+	int "ESP-Hosted SDIO clock frequency"
+	range 1000000 40000000
+	default 20000000
+
+endif # VELAPOKA_WIFI
+
 if VELAPOKA_TOUCHSCREEN
 
 config VELAPOKA_TOUCHSCREEN_PATH
@@ -47,7 +113,10 @@ config VELAPOKA_TOUCHSCREEN_SAMPLE_CACHES
 config VELAPOKA_TOUCHSCREEN_SAMPLE_DELAY
 	int "Touchscreen polling delay (ticks)"
 	range 1 100
-	default 10
+	default 1
+	---help---
+		Delay between GT911 status reads.  Keep this at one scheduler tick
+		for responsive taps; the velapoka configuration uses a 10 ms tick.
 
 endif # VELAPOKA_TOUCHSCREEN
 

@@ -44,6 +44,79 @@ config ESPRESSIF_CHIP_SERIES
 	default "esp32p4" if ESPRESSIF_ESP32P4
 	default "unknown"
 
+menuconfig ESPRESSIF_SPIRAM
+	bool "External SPI RAM (SPIRAM)"
+	depends on ARCH_CHIP_ESP32P4_VENDOR
+	default n
+	---help---
+		Enable the ESP32-P4 external PSRAM controller and HAL support.
+
+if ESPRESSIF_SPIRAM
+
+config ESPRESSIF_SPIRAM_BOOT_INIT
+	bool "Initialize SPIRAM during early boot"
+	default y
+	---help---
+		Initialize and map external PSRAM before heap registration.
+
+config ESPRESSIF_SPIRAM_IGNORE_NOTFOUND
+	bool "Ignore SPIRAM not found"
+	depends on !ESPRESSIF_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+	default n
+	---help---
+		Continue booting when the external PSRAM cannot be detected.
+
+config ESPRESSIF_SPIRAM_MEMTEST
+	bool "Run SPIRAM memory test at boot"
+	default n
+	---help---
+		Run a basic memory test before PSRAM is handed to NuttX.  Keep this
+		disabled for large PSRAM devices when using simple boot because the
+		early boot watchdog is still active during the test.
+
+config ESPRESSIF_SPIRAM_USE_8LINE_MODE
+	bool "Use x8 line mode"
+	default n
+	---help---
+		Use x8 mode instead of the board's default x16 AP Memory mode.
+
+config ESPRESSIF_SPIRAM_ECC_ENABLE
+	bool "Enable SPIRAM ECC"
+	default n
+	---help---
+		Reserve part of PSRAM for hardware error-correcting codes.
+
+choice ESPRESSIF_SPIRAM_SPEED
+	prompt "SPIRAM speed"
+	default ESPRESSIF_SPIRAM_SPEED_200M
+
+config ESPRESSIF_SPIRAM_SPEED_20M
+	bool "20 MHz"
+
+config ESPRESSIF_SPIRAM_SPEED_80M
+	bool "80 MHz"
+
+config ESPRESSIF_SPIRAM_SPEED_200M
+	bool "200 MHz"
+
+endchoice # ESPRESSIF_SPIRAM_SPEED
+
+config ESPRESSIF_SPIRAM_USER_HEAP
+	bool "Use SPIRAM as the NuttX user heap"
+	default y
+	depends on MM_KERNEL_HEAP
+	---help---
+		Use mapped PSRAM as the userspace heap while keeping the internal
+		SRAM heap for kernel and DMA allocations.
+
+config ESPRESSIF_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+	bool "Allow .bss segment in external memory"
+	default n
+	---help---
+		Allow variables marked for external RAM to be placed in PSRAM.
+
+endif # ESPRESSIF_SPIRAM
+
 choice ESPRESSIF_FLASH
 	prompt "Flash Size"
 	default ESPRESSIF_FLASH_4M if ESPRESSIF_ESP32C3 || ESPRESSIF_ESP32C6 || ESPRESSIF_ESP32H2 || ESPRESSIF_ESP32P4
@@ -99,6 +172,14 @@ config ESPRESSIF_CPU_FREQ_40
 	---help---
 		Set the CPU frequency to 40 MHz.
 
+config ESPRESSIF_CPU_FREQ_100
+	bool "100 MHz"
+	depends on ARCH_CHIP_ESP32P4_VENDOR
+	---help---
+		Set the CPU frequency to 100 MHz. This is useful for board bring-up
+		and for systems whose power supply cannot sustain 400 MHz together
+		with external PSRAM.
+
 config ESPRESSIF_CPU_FREQ_48
 	bool "48 MHz"
 	depends on ESPRESSIF_ESP32H2
@@ -146,6 +227,7 @@ endchoice # ESPRESSIF_CPU_FREQ
 config ESPRESSIF_CPU_FREQ_MHZ
 	int
 	default 40 if ESPRESSIF_CPU_FREQ_40
+	default 100 if ESPRESSIF_CPU_FREQ_100
 	default 48 if ESPRESSIF_CPU_FREQ_48
 	default 64 if ESPRESSIF_CPU_FREQ_64
 	default 80 if ESPRESSIF_CPU_FREQ_80
@@ -603,6 +685,171 @@ config ESPRESSIF_BLE
 	select ESP_WIRELESS
 	---help---
 		Enable BLE support
+
+config ESPRESSIF_EMAC
+	bool "Ethernet MAC"
+	depends on ESPRESSIF_ESP32P4
+	default n
+	select NET
+	select NETDEVICES
+	select NET_ETHERNET
+	select ARCH_PHY_INTERRUPT
+	select ESPRESSIF_HR_TIMER
+	select SCHED_HPWORK
+	---help---
+		Enable the ESP32-P4 internal Ethernet MAC.  RX notifications are
+		processed by the high-priority work queue.
+
+menu "Ethernet Configuration"
+	depends on ESPRESSIF_EMAC
+
+config ESPRESSIF_ETH_NRXDESC
+	int "RX descriptor number"
+	default 20
+	---help---
+		Number of DMA receive descriptors/buffers used by the EMAC.
+		Each buffer is CONFIG_ESPRESSIF_ETH_DMA_BUFFER_SIZE bytes.
+		The default of 20 provides headroom for TCP-style ACK bursts
+		that arrive while the upper layer is busy submitting a TX burst
+		(otherwise the EMAC asserts RX_BUFF_UNAVAILABLE and silently
+		drops incoming frames, forcing TCP retransmissions).
+
+config ESPRESSIF_ETH_NTXDESC
+	int "TX descriptor number"
+	default 20
+	---help---
+		Number of DMA transmit descriptors/buffers used by the EMAC.
+		With CONFIG_ESPRESSIF_ETH_DMA_BUFFER_SIZE=1600, each descriptor
+		holds one Ethernet frame.  TCP send() bursts up to ~12 segments
+		back-to-back; 20 descriptors gives ample headroom so that
+		esp_eth_transmit() never returns ESP_ERR_NO_MEM mid-burst.
+		If the ring is exhausted, frames are silently dropped and
+		retransmissions happen via fast-retransmit/RTO, drastically
+		degrading throughput.
+
+config ESPRESSIF_ETH_DMA_BUFFER_SIZE
+	int "DMA buffer size (bytes)"
+	default 1600
+	range 256 1600
+	---help---
+		Size of each DMA buffer used by the EMAC (must match esp_eth's
+		CONFIG_ETH_DMA_BUFFER_SIZE).  At the maximum 1600 bytes one
+		buffer holds an entire 1518-byte Ethernet frame, so a typical
+		TX uses exactly one descriptor.  Lower values cause the MAC DMA
+		to chain multiple descriptors per frame, reducing the effective
+		number of frames the ring can hold.
+
+config ESPRESSIF_ETH_TX_MAX_RETRIES
+	int "TX submit retry budget"
+	default 32
+	range 1 256
+	---help---
+		Number of times emac_transmit() retries esp_eth_transmit() when
+		the DMA TX descriptor ring is fully owned by hardware
+		(ESP_ERR_NO_MEM).  Between attempts the driver yields the CPU
+		via sched_yield() so that the RX worker (and any other peer at
+		the same priority) can run while the EMAC DMA drains its TX
+		descriptors in the background.  The default of 32 covers a
+		full ring rotation under sustained TCP bursts while remaining
+		bounded; increase if the network has very high latency between
+		TX submissions and DMA descriptor recycling.
+
+config ESPRESSIF_ETH_PHY_ADDR
+	int "PHY address"
+	default 1
+	range 0 31
+	---help---
+		Address of the external Ethernet PHY on the SMI (MDC/MDIO) bus.
+
+config ESPRESSIF_ETH_MDC_GPIO
+	int "MDC GPIO"
+	default 31 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the PHY MDC pin.  The shipped default
+		corresponds to the ESP32-P4 Function EV Board V1.5.2; override
+		for other boards/SoCs.
+
+config ESPRESSIF_ETH_MDIO_GPIO
+	int "MDIO GPIO"
+	default 52 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the PHY MDIO pin.  The shipped default
+		corresponds to the ESP32-P4 Function EV Board V1.5.2; override
+		for other boards/SoCs.
+
+config ESPRESSIF_ETH_RMII_CLK_GPIO
+	int "RMII REF_CLK GPIO"
+	default 50 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number for the RMII 50MHz reference clock (input).  The
+		shipped default corresponds to the ESP32-P4 Function EV Board
+		V1.5.2; override for other boards/SoCs.
+
+config ESPRESSIF_ETH_RMII_TX_EN_GPIO
+	int "RMII TX_EN GPIO"
+	default 49 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the RMII TX_EN pin.  Default is for the
+		ESP32-P4 Function EV Board V1.5.2.
+
+config ESPRESSIF_ETH_RMII_TXD0_GPIO
+	int "RMII TXD0 GPIO"
+	default 34 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the RMII TXD0 pin.  Default is for the
+		ESP32-P4 Function EV Board V1.5.2.
+
+config ESPRESSIF_ETH_RMII_TXD1_GPIO
+	int "RMII TXD1 GPIO"
+	default 35 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the RMII TXD1 pin.  Default is for the
+		ESP32-P4 Function EV Board V1.5.2.
+
+config ESPRESSIF_ETH_RMII_CRS_DV_GPIO
+	int "RMII CRS_DV GPIO"
+	default 28 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the RMII CRS_DV pin.  Default is for
+		the ESP32-P4 Function EV Board V1.5.2.
+
+config ESPRESSIF_ETH_RMII_RXD0_GPIO
+	int "RMII RXD0 GPIO"
+	default 29 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the RMII RXD0 pin.  Default is for the
+		ESP32-P4 Function EV Board V1.5.2.
+
+config ESPRESSIF_ETH_RMII_RXD1_GPIO
+	int "RMII RXD1 GPIO"
+	default 30 if ESPRESSIF_ESP32P4
+	default -1
+	---help---
+		GPIO number connected to the RMII RXD1 pin.  Default is for the
+		ESP32-P4 Function EV Board V1.5.2.
+
+config ESPRESSIF_ETH_ENABLE_PHY_RSTPIN
+	bool "Enable PHY reset pin"
+	default y
+
+config ESPRESSIF_ETH_PHY_RST_GPIO
+	int "PHY reset GPIO"
+	default 51 if ESPRESSIF_ESP32P4
+	default -1
+	depends on ESPRESSIF_ETH_ENABLE_PHY_RSTPIN
+	---help---
+		GPIO number connected to the PHY reset pin.  Default is for the
+		ESP32-P4 Function EV Board V1.5.2.
+
+endmenu # Ethernet Configuration
 
 config ESP_COEX_SW_COEXIST_ENABLE
 	bool "Software WiFi/Bluetooth/IEEE 802.15.4 coexistence"
@@ -1350,25 +1597,29 @@ config ESPRESSIF_SPI2_CSPIN
 	default 10 if ARCH_CHIP_ESP32C3_GENERIC
 	default 16 if ARCH_CHIP_ESP32C6
 	default 1 if ARCH_CHIP_ESP32H2
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 config ESPRESSIF_SPI2_CLKPIN
 	int "SPI2 CLK Pin"
 	default 6 if !ARCH_CHIP_ESP32H2
 	default 4 if ARCH_CHIP_ESP32H2
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 config ESPRESSIF_SPI2_MOSIPIN
 	int "SPI2 MOSI Pin"
 	default 7 if !ARCH_CHIP_ESP32H2
 	default 5 if ARCH_CHIP_ESP32H2
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 config ESPRESSIF_SPI2_MISOPIN
 	int "SPI2 MISO Pin"
 	default 2 if !ARCH_CHIP_ESP32H2
 	default 0 if ARCH_CHIP_ESP32H2
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 endif # ESPRESSIF_SPI2
 
@@ -1377,22 +1628,26 @@ if ESPRESSIF_SPI_BITBANG
 config ESPRESSIF_SPI_BITBANG_CSPIN
 	int "SPI Bitbang CS Pin"
 	default 0
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 config ESPRESSIF_SPI_BITBANG_CLKPIN
 	int "SPI Bitbang CLK Pin"
 	default 1
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 config ESPRESSIF_SPI_BITBANG_MOSIPIN
 	int "SPI Bitbang MOSI Pin"
 	default 2
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 config ESPRESSIF_SPI_BITBANG_MISOPIN
 	int "SPI Bitbang MISO Pin"
 	default 3
-	range 0 21
+	range 0 54 if ESPRESSIF_ESP32P4
+	range 0 21 if !ESPRESSIF_ESP32P4
 
 choice ESPRESSIF_SPI_BITBANG_MODE
 	prompt "SPI Bitbang mode"
@@ -2090,6 +2345,34 @@ config ESPRESSIF_BROWNOUT_DET_LVL
 	default 7 if ESPRESSIF_BROWNOUT_DET_LVL_SEL_7
 
 endmenu # ESPRESSIF_BROWNOUT_DET
+
+menuconfig ESPRESSIF_MIPI_DSI
+	bool "MIPI DSI Host"
+	default n
+	select DRIVERS_VIDEO
+	select MIPI_DSI
+	---help---
+		Enable the ESP32-P4 MIPI-DSI host using the NuttX MIPI-DSI API.
+		The board must enable the D-PHY supply before initializing the host.
+
+if ESPRESSIF_MIPI_DSI
+
+config ESPRESSIF_MIPI_DSI_BUS
+	int "DSI host bus number"
+	default 0
+	range 0 0
+
+config ESPRESSIF_MIPI_DSI_LANES
+	int "Default number of DSI data lanes"
+	default 2
+	range 1 2
+
+config ESPRESSIF_MIPI_DSI_LANE_BITRATE_MBPS
+	int "Default DSI lane bit rate (Mbps)"
+	default 1000
+	range 80 1500
+
+endif # ESPRESSIF_MIPI_DSI
 
 menu "Internal Temperature Sensor Configuration"
 	depends on ESPRESSIF_TEMP

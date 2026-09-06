@@ -15,16 +15,15 @@ VelaPoka 是面向电子装配场景的固定工位视觉检查终端，基于 E
 | LCD Backlight| GPIO26                 | GPIO Out     | ✅ 已适配  |
 | PHY Reset   | GPIO51                  | GPIO Out     | ✅ 已适配  |
 | I2C (GT911) | GPIO7(SDA)/GPIO8(SCL)   | SW I2C 400K  | ✅ 已适配  |
-| MIPI-DSI    | 专用差分对 (2 lane)      | DSI 1Gbps    | ⬜ 待适配  |
-| MIPI-CSI    | 专用差分对 (2 lane)      | CSI          | ⬜ 待适配  |
-| SDMMC1      | GPIO39-44               | SDIO 4-bit   | ⬜ 待适配  |
-| SDMMC2      | GPIO45-50               | SDIO 4-bit   | ⬜ 待适配  |
-| Ethernet    | GPIO34,49,50,28-31,52   | RMII         | ⬜ 待适配  |
-| MDC/MDIO    | GPIO31/52               | MDIO         | ⬜ 待适配  |
-| PSRAM       | MSPI 专用               | Octal SPI    | ⬜ 待适配  |
-| LDO CH3     | 内部                    | 2.5V (DSI)   | ⬜ 待适配  |
-| LDO CH4     | 内部                    | VDDIO (SD)   | ⬜ 待适配  |
-| WiFi/BT     | ESP32-C6-MINI-1         | UART         | 🔄 后期   |
+| MIPI-DSI    | 专用差分对 (2 lane)      | DSI 1Gbps    | ✅ 已适配  |
+| MIPI-CSI    | 专用差分对 (2 lane)      | CSI RAW10    | ✅ 已适配  |
+| MicroSD     | GPIO39/43/44/42          | SPI2         | ✅ 已适配  |
+| Ethernet    | GPIO34,49,50,28-31,52   | RMII         | ✅ 已适配  |
+| MDC/MDIO    | GPIO31/52               | MDIO         | ✅ 已适配  |
+| PSRAM       | MSPI 专用               | Octal SPI    | ✅ 已适配  |
+| LDO CH3     | 内部                    | 2.5V (DSI/CSI) | ✅ 已适配 |
+| LDO CH4     | 内部                    | 3.3V (MicroSD) | ✅ 已适配 |
+| WiFi        | GPIO14-19，Reset GPIO54 | SDIO 4-bit / ESP-Hosted | ✅ 驱动层实板通过 |
 | Audio       | I2S + I2C               | ES8311       | 🔄 可选   |
 
 ## 软件模块架构
@@ -57,6 +56,9 @@ VelaPoka 是面向电子装配场景的固定工位视觉检查终端，基于 E
 │  │GT911    │ │控制GPIO  │ │I2C      │ │LDO CH3  │              │
 │  │(已有)    │ │(已有)    │ │(已有)    │ │(DSI供电) │              │
 │  └─────────┘ └─────────┘ └─────────┘ └─────────┘              │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ ESP32-P4 SDMMC → ESP-Hosted RPC/data → wlan0 netdev     │  │
+│  └──────────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────────────┤
 │  ESP32-P4 HAL (esp-hal-3rdparty) + NuttX Kernel                 │
 └──────────────────────────────────────────────────────────────────┘
@@ -64,38 +66,40 @@ VelaPoka 是面向电子装配场景的固定工位视觉检查终端，基于 E
 
 ## 适配路线图
 
-### Phase 1: PSRAM 使能 ⬅ 当前
+### Phase 1: PSRAM 使能 ✅
 - 目标：启用外部 PSRAM，为图像帧缓冲提供大内存
 - 工作：defconfig 添加 SPIRAM 配置
 - 验收：`cat /dev/velapoka` 显示 extern_ram_seg 有使用量
 
-### Phase 2: MIPI-DSI + LCD Framebuffer
+### Phase 2: MIPI-DSI + LCD Framebuffer ✅
 - 目标：7 英寸 1024x600 显示输出
 - 工作：
   - LDO CH3 2.5V 初始化（DSI 供电）
   - MIPI-DSI host 初始化（2 lane, 1Gbps）
   - LCD panel 初始化（复位序列 + DCS 命令）
   - 注册 NuttX framebuffer `/dev/fb0`
-- 验收：`fb` 测试程序在屏幕上画图
+- 验收：`/dev/fb0` 以 1024x600 RGB565 双缓冲运行，触屏产品 UI 无撕裂显示
 
-### Phase 3: MIPI-CSI + Camera
+### Phase 3: MIPI-CSI + Camera ✅
 - 目标：2MP 摄像头图像采集
 - 工作：
   - CSI host 初始化（2 lane）
   - Camera sensor I2C 配置
   - DMA 帧缓冲管理（双缓冲，PSRAM 分配）
   - 注册 V4L2 设备 `/dev/video0`
-- 验收：`v4l2` 工具捕获一帧图像
+- 验收：`/dev/video0` 注册成功，两次 `camtest preview 3 5000` 均取得完整
+  1152000 字节帧，产品实时预览和检测链路通过
 
-### Phase 4: SDMMC + 文件系统
+### Phase 4: MicroSD + 文件系统 ✅
 - 目标：MicroSD 卡读写
 - 工作：
-  - SDMMC1 host 初始化（GPIO39-44）
+  - SPI2 host 初始化（GPIO39/43/44/42）
   - LDO CH4 VDDIO 初始化
   - SD 卡探测 + FAT 文件系统挂载 `/mnt/sdcard`
-- 验收：文件读写测试通过
+- 验收：`/dev/mmcsd0` FAT32 挂载、模板/JSONL/BMP 持久化、卸载及断电后
+  Windows 读取均通过
 
-### Phase 5: Ethernet
+### Phase 5: Ethernet ✅
 - 目标：10/100Mbps 有线网络
 - 工作：
   - RMII 引脚配置
@@ -104,13 +108,34 @@ VelaPoka 是面向电子装配场景的固定工位视觉检查终端，基于 E
   - DHCP / 静态 IP 配置
 - 验收：ping 测试通过
 
-### Phase 6: 应用层
+实板验收记录（2026-08-24）：
+
+- PHY 地址 1，复位 GPIO51；MAC 地址从 eFuse 正常读取。
+- NuttX `eth0` 注册成功，链路状态为 `RUNNING`。
+- 静态 IPv4：开发板 `10.0.0.2/24`，Windows 主机 `10.0.0.1/24`。
+- 开发板到主机 Ping 10/10、主机到开发板 Ping 4/4，双向均为 0% 丢包。
+- 清理移植期诊断日志后重新构建、烧录并完成相同双向 Ping 回归。
+- DHCP、吞吐量和长时间稳定性尚未作为本阶段验收结论。
+
+### Phase 6: 应用层（进行中）
 - 目标：完整视觉装配检查功能
 - 工作：
   - 视觉检测算法（灰度差异、边缘、模板匹配）
   - 装配状态机（4 步防错流程）
   - UI 界面（触摸屏交互）
   - 异常记录与以太网导出
+
+当前单工序样本录入、固定区域差异检测、PASS/FAIL 显示、异常留档、启动历史恢复、
+触屏安全退出和 RJ45 HTTP 查询/导出已经实板通过。四工序顺序防错、定位标记校准和
+完整工程压力指标仍按产品开发计划继续推进。
+
+### Wi-Fi 驱动增强
+
+- ESP32-P4 使用 SDIO 4-bit 与板载 ESP32-C6 通信，加载 ESP-Hosted 0.0.6 host。
+- 驱动注册 `wlan0`，提供 STA、扫描、认证、连接、RSSI 和以太网帧收发接口。
+- 当前只交付驱动与 wireless ioctl，不新增 Wi-Fi 业务应用或开机联网逻辑。
+- 实板已通过 SDIO 枚举、ESP-Hosted RPC、STA 启动、MAC 获取、`wlan0` 注册和
+  BSP ready 位验收。扫描、关联和数据收发留给后续测试镜像，不属于本次范围。
 
 ## 关键设计决策
 
