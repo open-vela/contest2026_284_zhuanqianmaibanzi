@@ -11,6 +11,21 @@
 - `configs/velapoka`：产品配置，包含 PSRAM、GT911、MIPI-DSI framebuffer、
   SC2336/CSI、EMAC、ESP32-C6 ESP-Hosted Wi-Fi、LVGL 和 VelaPoka 应用。
 
+## 参赛信息
+
+| 项目 | 内容 |
+| --- | --- |
+| 队伍名称 | 赚钱买板子 |
+| 队伍编号 | 284 |
+| 参赛成员 | wx719 |
+| 团队分工 | ESP32-P4 BSP 适配、视觉检测应用、实板调试、测试与文档 |
+| 选题方向 | 端侧视觉与嵌入式系统——固定工位视觉装配防错终端 |
+| 开发平台 | ESP32-P4X-Function-EV-Board + openvela/NuttX |
+
+本作品由真实开发板完成验证。已实现固定工位下的标准样本录入、固定 ROI
+差异检测、PASS/FAIL 与异常框、本地 MicroSD 追溯和 RJ45 只读导出；四步工序、
+触屏自由框选 ROI 和定位标记自动校准未纳入本次最终交付范围。
+
 当前已归档 M4 留档链路：在 M3 P0 检测基础上增加 MicroSD FAT 自动挂载、
 模板和阈值恢复、JSONL、FAIL 灰度 BMP、后台存储队列及最近历史显示。
 硬件 SPI2 替换 GPIO 模拟 SPI 后，最小文件和应用数据均已通过卸载、断电及
