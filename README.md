@@ -26,6 +26,24 @@
 差异检测、PASS/FAIL 与异常框、本地 MicroSD 追溯和 RJ45 只读导出；四步工序、
 触屏自由框选 ROI 和定位标记自动校准未纳入本次最终交付范围。
 
+## 参赛提交链
+
+本作品的应用源码、板级交付、AI Coding 日志、演示视频、PPT 和报告均放在赛事
+专属仓 `open-vela/contest2026_284_zhuanqianmaibanzi` 的
+`dev-ai-contest-2026` 分支。由于 ESP32-P4 适配同时需要修复 NuttX 公共基线，
+公共仓改动按赛事要求从个人 fork 提 PR 到 `open-vela/nuttx`：
+
+| 类型 | 链接 | 说明 |
+| --- | --- | --- |
+| 作品主仓库 | https://github.com/open-vela/contest2026_284_zhuanqianmaibanzi | VelaPoka 应用、BSP、文档、AI 日志和提交材料 |
+| 作品最终提交 PR | https://github.com/open-vela/contest2026_284_zhuanqianmaibanzi/pull/2 | 将作品材料合入赛事专属仓 `dev-ai-contest-2026` |
+| NuttX 公共 PR #371 | https://github.com/open-vela/nuttx/pull/371 | ESP32-P4 RISC-V 架构和 Kconfig 基线支持 |
+| NuttX 公共 PR #372 | https://github.com/open-vela/nuttx/pull/372 | `net/usrsock` 关闭时的声明守卫修复 |
+| NuttX 公共 PR #373 | https://github.com/open-vela/nuttx/pull/373 | MMC/SD SPI 写入完成状态校验修复 |
+
+`board/contest_board/upstream/nuttx/` 保留上述公共修复的补丁副本，便于在公共 PR
+尚未合入本地基线时复现构建；补丁本身不作为 vendor 私有实现长期分叉。
+
 当前已归档 M4 留档链路：在 M3 P0 检测基础上增加 MicroSD FAT 自动挂载、
 模板和阈值恢复、JSONL、FAIL 灰度 BMP、后台存储队列及最近历史显示。
 硬件 SPI2 替换 GPIO 模拟 SPI 后，最小文件和应用数据均已通过卸载、断电及
