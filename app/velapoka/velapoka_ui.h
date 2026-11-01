@@ -18,6 +18,7 @@
 #include "velapoka_model.h"
 #include "velapoka_state.h"
 #include "velapoka_storage.h"
+#include "velapoka_upload.h"
 
 /****************************************************************************
  * Public Types
@@ -29,7 +30,12 @@ enum velapoka_ui_action_e
   VELAPOKA_UI_ACTION_ENROLL,
   VELAPOKA_UI_ACTION_INSPECT,
   VELAPOKA_UI_ACTION_STOP,
-  VELAPOKA_UI_ACTION_EXIT
+  VELAPOKA_UI_ACTION_EXIT,
+  VELAPOKA_UI_ACTION_TEST_PC,
+  VELAPOKA_UI_ACTION_UPLOAD,
+  VELAPOKA_UI_ACTION_FINISH,
+  VELAPOKA_UI_ACTION_RESTART,
+  VELAPOKA_UI_ACTION_REOPEN_DATA
 };
 
 /****************************************************************************
@@ -54,5 +60,12 @@ void velapoka_ui_set_result(FAR const struct velapoka_result_s *result);
 void velapoka_ui_set_history(FAR const struct velapoka_history_s *history,
                              unsigned int count);
 void velapoka_ui_clear_boxes(void);
+void velapoka_ui_set_preview_frozen(bool frozen);
+void velapoka_ui_open_data(void);
+void velapoka_ui_begin_shutdown(void);
+void velapoka_ui_shutdown_complete(bool error);
+void velapoka_ui_release(void);
+void velapoka_ui_update_data(
+  FAR const struct velapoka_upload_status_s *status, bool http_online);
 
 #endif /* __APPS_EXAMPLES_VELAPOKA_VELAPOKA_UI_H */

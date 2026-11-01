@@ -1,0 +1,51 @@
+Workspace organization -- 2026-10-24
+
+Scope: navigation, optional IDE workspace, recoverable archival only.
+No source cleanup, make clean, rebuild, Git commit, push or flashing.
+No files deleted; no disk-space saving claimed.
+
+Moved intact:
+  .vendor-baseline-check-1786288232
+    -> recovery-backup/legacy-checks/.vendor-baseline-check-1786288232
+  .vendor-delivery-check-1786289082
+    -> recovery-backup/legacy-checks/.vendor-delivery-check-1786289082
+  10 workspace-restore-2026-10-24-*.log and 3 workspace-restore-pr*.patch
+    from logs/ -> logs/build-env/2026-10-24/, original names preserved.
+
+Old check worktrees referenced the deleted contest284/ workspace before
+archival. They remain historical evidence, not supported build entries.
+Historical logs, fixed manifest, toolchains and public repo trees retained.
+
+Added:
+  WORKSPACE.md at workspace root
+  contest284-manifest/VelaPoka.code-workspace
+  contest284-manifest/tools/build-env/workspace-layout.md
+  archive directory READMEs
+
+Verification: PASS
+  VS Code workspace JSON parsed; all three folder targets exist.
+  Build entry is executable.
+  Build/prebuilts/team/vendor/app/architecture/board mappings resolve.
+  Archive inventory: two directories, ten logs, three original patches.
+  Maintenance git diff --check passed.
+  Application/BSP diff signature and upload sources unchanged.
+  Current config and firmware hashes unchanged.
+
+Before/after SHA256 (identical):
+Application/BSP tracked diff (app, board src, board common):
+  b04ffb447687a70524596d1556385ae4e2d70796fccf49e7c6cacaf506a8972c
+nuttx/vela_nuttx.bin:
+  27f2d667dd0d57d5b18eab33bbc38793ae3b029d8be5a97bdb6d30871b6396e4
+nuttx/.config:
+  4e51dbaa6cabb17b5d090b89026eb6dcc75af68bffc46e06beed4447f1dbc16b
+app/velapoka/velapoka_upload.c (maintenance repository):
+  dfc57a0583068fa539850d4a457251f6f94c9cc61b4b2f2df49b85eaf8a853f1
+app/velapoka/velapoka_upload.h (maintenance repository):
+  3a46316acb0a448058c212f0991642daa16fea3d99c7af92b88e469d808eb945
+
+Current firmware is the user's later rebuild, not the recovery archive.
+The original archived NSH/product firmware hashes were also checked and
+remain as documented in 2026-10-24-build-env.txt.
+
+IDE tasks were checked structurally but not launched in the graphical IDE.
+No new real-board acceptance result is implied.

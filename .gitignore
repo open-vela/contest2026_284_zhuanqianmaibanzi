@@ -22,5 +22,14 @@ out/
 *.hex
 *.map
 Make.dep
+.built
+.depend
 *-d
 *.bak
+
+# Host-test bytecode (regenerated automatically)
+__pycache__/
+*.py[cod]
+
+# NuttX recreates this board-source link for the active build directory.
+/board/contest_board/common/board

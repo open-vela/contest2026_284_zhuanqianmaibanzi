@@ -38,6 +38,12 @@
 
 static volatile sig_atomic_t g_velapoka_exit_requested;
 
+enum velapoka_restart_e
+{
+  VELAPOKA_RESTART_INSPECTION = 1,
+  VELAPOKA_RESTART_DATA
+};
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -61,11 +67,30 @@ static int velapoka_set_state(FAR struct velapoka_state_s *state,
   return ret;
 }
 
-/****************************************************************************
- * Public Functions
- ****************************************************************************/
+static void velapoka_refresh(int sync_fd)
+{
+  int ret;
 
-int main(int argc, FAR char *argv[])
+  if (sync_fd >= 0)
+    {
+      do
+        {
+          ret = ioctl(sync_fd, FBIO_WAITFORVSYNC, 0);
+        }
+      while (ret < 0 && errno == EINTR && !g_velapoka_exit_requested);
+    }
+
+  lv_refr_now(NULL);
+}
+
+static void velapoka_shutdown_stage(int sync_fd, FAR const char *stage)
+{
+  printf("velapoka: shutdown: %s\n", stage);
+  velapoka_ui_set_message("SHUTTING DOWN", stage, false);
+  velapoka_refresh(sync_fd);
+}
+
+static int velapoka_run(bool open_data)
 {
   lv_nuttx_dsc_t info;
   lv_nuttx_result_t result;
@@ -73,6 +98,8 @@ int main(int argc, FAR char *argv[])
   FAR struct velapoka_inspector_s *inspector = NULL;
   FAR struct velapoka_network_s *network = NULL;
   FAR struct velapoka_storage_s *storage = NULL;
+  FAR struct velapoka_upload_s *upload = NULL;
+  uint32_t data_updated = 0;
   FAR uint8_t *storage_image = NULL;
   struct velapoka_history_s history[VELAPOKA_HISTORY_COUNT];
   struct velapoka_state_s state;
@@ -202,6 +229,7 @@ int main(int argc, FAR char *argv[])
       velapoka_camera_stop(camera);
       lv_nuttx_deinit(&result);
       lv_deinit();
+      velapoka_ui_release();
       return ret;
     }
 
@@ -215,6 +243,12 @@ int main(int argc, FAR char *argv[])
     {
       fprintf(stderr, "velapoka: warning: network unavailable: %d\n",
               ret);
+    }
+
+  ret = velapoka_upload_start(&upload, storage);
+  if (ret < 0)
+    {
+      fprintf(stderr, "velapoka: data manager unavailable: %d\n", ret);
     }
 
   history_count = velapoka_storage_get_history(
@@ -243,6 +277,11 @@ int main(int argc, FAR char *argv[])
                               false);
     }
 
+  if (open_data)
+    {
+      velapoka_ui_open_data();
+    }
+
   while (!g_velapoka_exit_requested)
     {
       enum velapoka_ui_action_e action;
@@ -263,6 +302,7 @@ int main(int argc, FAR char *argv[])
               ret = velapoka_inspect_enroll_begin(inspector);
               if (ret == OK)
                 {
+                  velapoka_ui_set_preview_frozen(false);
                   velapoka_set_state(&state,
                                      VELAPOKA_STATE_SAMPLE_CAPTURE);
                   velapoka_ui_clear_boxes();
@@ -296,6 +336,7 @@ int main(int argc, FAR char *argv[])
             }
           else
             {
+              velapoka_ui_set_preview_frozen(false);
               if (state.current == VELAPOKA_STATE_IDLE ||
                   state.current == VELAPOKA_STATE_ERROR)
                 {
@@ -314,15 +355,33 @@ int main(int argc, FAR char *argv[])
           velapoka_inspect_discard_result(inspector);
           velapoka_set_state(&state, VELAPOKA_STATE_IDLE);
           velapoka_ui_clear_boxes();
+          velapoka_ui_set_preview_frozen(false);
           velapoka_ui_set_message("STOPPED",
                                   "Enroll or inspect when ready", false);
         }
+      else if (action == VELAPOKA_UI_ACTION_FINISH)
+        {
+          velapoka_inspect_discard_result(inspector);
+          velapoka_set_state(&state, VELAPOKA_STATE_IDLE);
+          velapoka_ui_clear_boxes();
+          velapoka_ui_set_preview_frozen(true);
+          velapoka_ui_set_message("INSPECTION FINISHED",
+                                  "Data / Upload available; SD mounted",
+                                  false);
+        }
+      else if (action == VELAPOKA_UI_ACTION_TEST_PC ||
+               action == VELAPOKA_UI_ACTION_UPLOAD)
+        {
+          ret = velapoka_upload_request(
+            upload, action == VELAPOKA_UI_ACTION_UPLOAD);
+          if (ret < 0 && ret != -EBUSY)
+            {
+              velapoka_ui_set_message("UPLOAD UNAVAILABLE",
+                                      "Restart device and check SD", true);
+            }
+        }
       else if (action == VELAPOKA_UI_ACTION_EXIT)
         {
-          velapoka_ui_set_message("SHUTTING DOWN",
-                                  "Flushing storage and unmounting SD",
-                                  false);
-          lv_timer_handler();
           break;
         }
 
@@ -408,6 +467,11 @@ int main(int argc, FAR char *argv[])
                     velapoka_ui_get_threshold());
                   if (ret == OK)
                     {
+                      /* Results refer to this captured frame, not the
+                       * subsequent live scene underneath fixed boxes.
+                       */
+
+                      velapoka_ui_set_preview_frozen(true);
                       velapoka_set_state(&state,
                                          VELAPOKA_STATE_INSPECT);
                       velapoka_ui_set_message("INSPECTING",
@@ -521,6 +585,16 @@ int main(int argc, FAR char *argv[])
         inspector != NULL && velapoka_inspect_reference_ready(inspector),
         velapoka_ui_get_threshold());
 
+      if ((uint32_t)(lv_tick_get() - data_updated) >= 500)
+        {
+          struct velapoka_upload_status_s upload_status;
+
+          velapoka_upload_status(upload, &upload_status);
+          velapoka_ui_update_data(&upload_status,
+                                  velapoka_network_online(network));
+          data_updated = lv_tick_get();
+        }
+
       if (sync_fd >= 0)
         {
           do
@@ -558,31 +632,49 @@ int main(int argc, FAR char *argv[])
     }
 
   printf("velapoka: shutdown requested\n");
+  velapoka_ui_begin_shutdown();
+  velapoka_shutdown_stage(sync_fd, "Stopping upload");
+  velapoka_upload_stop(upload);
+  velapoka_shutdown_stage(sync_fd, "Stopping HTTP service");
   ret = velapoka_network_stop(network);
   if (ret < 0)
     {
       fprintf(stderr, "velapoka: network shutdown error: %d\n", ret);
     }
 
+  velapoka_shutdown_stage(sync_fd, "Stopping camera");
   velapoka_camera_stop(camera);
+  velapoka_shutdown_stage(sync_fd, "Stopping inspector");
   velapoka_inspect_stop(inspector);
+  velapoka_shutdown_stage(sync_fd, "Saving records and unmounting SD");
   storage_ret = velapoka_storage_stop(storage);
 
-  if (storage_ret < 0)
-    {
-      velapoka_ui_set_message("SHUTDOWN ERROR",
-                              "Storage flush failed; keep SD inserted",
-                              true);
-    }
-  else
-    {
-      velapoka_ui_set_message("SAFE EXIT COMPLETE",
-                              "Storage saved; safe to power off",
-                              false);
-    }
+  /* The old implementation destroyed LVGL here, leaving dead buttons on
+   * screen.  Keep only a dedicated restart/data-remount page interactive.
+   * No former widget may access the stopped storage or upload services.
+   */
 
-  lv_timer_handler();
-  usleep(200 * 1000);
+  velapoka_ui_shutdown_complete(storage_ret < 0);
+  velapoka_refresh(sync_fd);
+  printf("velapoka: shutdown finished: storage=%d; UI remains active\n",
+         storage_ret);
+  ret = OK;
+  while (!g_velapoka_exit_requested)
+    {
+      enum velapoka_ui_action_e action = velapoka_ui_take_action();
+
+      if (action == VELAPOKA_UI_ACTION_RESTART ||
+          action == VELAPOKA_UI_ACTION_REOPEN_DATA)
+        {
+          ret = action == VELAPOKA_UI_ACTION_RESTART ?
+                VELAPOKA_RESTART_INSPECTION : VELAPOKA_RESTART_DATA;
+          break;
+        }
+
+      velapoka_refresh(sync_fd);
+      lv_timer_handler();
+      usleep(10000);
+    }
 
   if (sync_fd >= 0)
     {
@@ -592,6 +684,12 @@ int main(int argc, FAR char *argv[])
   free(storage_image);
   lv_nuttx_deinit(&result);
   lv_deinit();
+  velapoka_ui_release();
+
+  if (ret > 0)
+    {
+      return ret;
+    }
 
   if (storage_ret < 0)
     {
@@ -603,4 +701,26 @@ int main(int argc, FAR char *argv[])
 
   printf("velapoka: safe shutdown complete\n");
   return OK;
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+int main(int argc, FAR char *argv[])
+{
+  bool open_data = false;
+  int ret;
+
+  (void)argc;
+  (void)argv;
+
+  do
+    {
+      ret = velapoka_run(open_data);
+      open_data = ret == VELAPOKA_RESTART_DATA;
+    }
+  while (ret > 0 && !g_velapoka_exit_requested);
+
+  return ret > 0 ? OK : ret;
 }

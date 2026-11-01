@@ -25,6 +25,7 @@
 #include <sys/stat.h>
 #include <sys/statfs.h>
 #include <syslog.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "velapoka_storage.h"
@@ -77,6 +78,8 @@ struct velapoka_storage_s
     requests[VELAPOKA_STORAGE_QUEUE_DEPTH];
   struct velapoka_history_s history[VELAPOKA_HISTORY_COUNT];
   uint32_t next_id;
+  uint32_t records;
+  uint32_t fail_records;
   unsigned int reference_threshold;
   unsigned int history_count;
   unsigned int request_head;
@@ -89,6 +92,19 @@ struct velapoka_storage_s
   bool stop;
   bool thread_started;
   bool mounted_here;
+};
+
+/* Freeze a JSONL prefix; send its referenced images, then the prefix itself.
+ * Appends from new detections are left for the next upload.
+ */
+
+struct velapoka_export_s
+{
+  FAR struct velapoka_storage_s *storage;
+  FILE *stream;
+  uint64_t length;
+  uint64_t remaining;
+  bool results_sent;
 };
 
 /****************************************************************************
@@ -156,13 +172,19 @@ static bool velapoka_export_path_valid(FAR const char *relative_path)
   FAR const char *name;
   unsigned int i;
 
+  if (relative_path == NULL)
+    {
+      return false;
+    }
+
   if (strcmp(relative_path, VELAPOKA_STORAGE_RESULTS) == 0)
     {
       return true;
     }
 
   name = relative_path;
-  if (strncmp(name, VELAPOKA_STORAGE_FAIL_DIR "/fail_", 10) != 0)
+  if (strlen(name) != 22 ||
+      strncmp(name, VELAPOKA_STORAGE_FAIL_DIR "/fail_", 10) != 0)
     {
       return false;
     }
@@ -448,6 +470,12 @@ static int velapoka_storage_load_history(
                                 strcmp(result, "PASS") == 0,
                                 score > UINT16_MAX ? UINT16_MAX : score);
           loaded++;
+          storage->records++;
+          if (strcmp(result, "PASS") != 0)
+            {
+              storage->fail_records++;
+            }
+
           previous_id = id;
           have_previous = true;
         }
@@ -892,6 +920,12 @@ static FAR void *velapoka_storage_thread(FAR void *arg)
 
       if (save_result)
         {
+          if (ret == OK)
+            {
+              storage->records++;
+              storage->fail_records += request->has_image ? 1 : 0;
+            }
+
           storage->request_head =
             (storage->request_head + 1) % VELAPOKA_STORAGE_QUEUE_DEPTH;
           storage->request_count--;
@@ -1345,4 +1379,375 @@ unsigned int velapoka_storage_get_history(
   memcpy(history, storage->history, count * sizeof(*history));
   pthread_mutex_unlock(&storage->lock);
   return count;
+}
+
+static int velapoka_export_lock(FAR struct velapoka_storage_s *storage)
+{
+  struct timespec deadline;
+  int ret;
+
+  clock_gettime(CLOCK_REALTIME, &deadline);
+  deadline.tv_sec += 3;
+  ret = pthread_mutex_timedlock(&storage->io_lock, &deadline);
+  return ret == 0 ? OK : -ret;
+}
+
+int velapoka_storage_get_usage(FAR struct velapoka_storage_s *storage,
+                               FAR struct velapoka_storage_usage_s *usage)
+{
+  struct statfs fs;
+  int ret;
+
+  if (storage == NULL || usage == NULL)
+    {
+      return -ENODEV;
+    }
+
+  memset(usage, 0, sizeof(*usage));
+  ret = velapoka_export_lock(storage);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = statfs(CONFIG_EXAMPLES_VELAPOKA_STORAGE_MOUNTPOINT, &fs);
+  ret = ret < 0 ? -errno : OK;
+  pthread_mutex_unlock(&storage->io_lock);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (fs.f_type != MSDOS_SUPER_MAGIC)
+    {
+      return -ENODEV;
+    }
+
+  usage->total_bytes = (uint64_t)fs.f_blocks * fs.f_bsize;
+  usage->free_bytes = (uint64_t)fs.f_bfree * fs.f_bsize;
+  usage->available_bytes = (uint64_t)fs.f_bavail * fs.f_bsize;
+  pthread_mutex_lock(&storage->lock);
+  usage->records = storage->records;
+  usage->fail_records = storage->fail_records;
+  usage->queued = storage->request_count + storage->reference_pending +
+                  storage->reference_busy;
+  ret = storage->online ? OK : -ENODEV;
+  pthread_mutex_unlock(&storage->lock);
+  return ret;
+}
+
+int velapoka_storage_export_begin(FAR struct velapoka_storage_s *storage,
+                                  FAR struct velapoka_export_s **session)
+{
+  FAR struct velapoka_export_s *export;
+  struct stat st;
+  char path[VELAPOKA_STORAGE_PATH_SIZE];
+  int ret;
+
+  if (storage == NULL || session == NULL ||
+      !velapoka_storage_online(storage))
+    {
+      return -ENODEV;
+    }
+
+  *session = NULL;
+  export = calloc(1, sizeof(*export));
+  if (export == NULL)
+    {
+      return -ENOMEM;
+    }
+
+  export->storage = storage;
+  ret = velapoka_path(path, sizeof(path), VELAPOKA_STORAGE_RESULTS);
+  if (ret < 0)
+    {
+      free(export);
+      return ret;
+    }
+
+  ret = velapoka_export_lock(storage);
+  if (ret < 0)
+    {
+      free(export);
+      return ret;
+    }
+
+  export->stream = fopen(path, "r");
+  ret = export->stream == NULL ? -errno : OK;
+  if (ret == OK)
+    {
+      ret = fstat(fileno(export->stream), &st) < 0 ? -errno : OK;
+      if (ret == OK && st.st_size < 0)
+        {
+          ret = -EIO;
+        }
+
+      if (ret == OK)
+        {
+          export->length = st.st_size;
+          export->remaining = st.st_size;
+        }
+    }
+
+  pthread_mutex_unlock(&storage->io_lock);
+  if (ret < 0)
+    {
+      velapoka_storage_export_end(export);
+      return ret;
+    }
+
+  *session = export;
+  return OK;
+}
+
+int velapoka_storage_export_next(FAR struct velapoka_export_s *session,
+                                 FAR struct velapoka_export_file_s *file)
+{
+  char line[VELAPOKA_STORAGE_JSON_SIZE];
+  unsigned int scanned = 0;
+  int ret;
+
+  if (session == NULL || file == NULL)
+    {
+      return -EINVAL;
+    }
+
+  memset(file, 0, sizeof(*file));
+  file->fd = -1;
+  while (session->remaining > 0)
+    {
+      FAR char *image;
+      FAR char *end;
+      size_t length;
+
+      /* Let the upload worker service cancellation / receiver keepalives
+       * even when a large PASS-only log contains no image entries.
+       */
+
+      if (scanned++ == 32)
+        {
+          return -EAGAIN;
+        }
+
+      ret = velapoka_export_lock(session->storage);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      ret = fgets(line, sizeof(line), session->stream) != NULL ? OK :
+            -EIO;
+      pthread_mutex_unlock(&session->storage->io_lock);
+      if (ret < 0)
+        {
+          return ret;
+        }
+
+      length = strlen(line);
+      if (length == 0 || length > session->remaining ||
+          line[length - 1] != '\n')
+        {
+          return -EBADMSG;
+        }
+
+      session->remaining -= length;
+      image = strstr(line, "\"image\":\"");
+      if (image == NULL)
+        {
+          return -EBADMSG;
+        }
+
+      image += strlen("\"image\":\"");
+      end = strchr(image, '"');
+      if (end == NULL)
+        {
+          return -EBADMSG;
+        }
+
+      *end = '\0';
+      if (*image == '\0')
+        {
+          continue;
+        }
+
+      if (!velapoka_export_path_valid(image) ||
+          strlen(image) >= sizeof(file->name))
+        {
+          return -EBADMSG;
+        }
+
+      strlcpy(file->name, image, sizeof(file->name));
+      break;
+    }
+
+  if (file->name[0] == '\0')
+    {
+      if (session->results_sent)
+        {
+          return 0;
+        }
+
+      session->results_sent = true;
+      strlcpy(file->name, VELAPOKA_STORAGE_RESULTS, sizeof(file->name));
+    }
+
+  ret = velapoka_storage_export_reopen(session, file);
+  return ret < 0 ? ret : 1;
+}
+
+int velapoka_storage_export_reopen(FAR struct velapoka_export_s *session,
+                                   FAR struct velapoka_export_file_s *file)
+{
+  char path[VELAPOKA_STORAGE_PATH_SIZE];
+  struct stat st;
+  int ret;
+
+  if (session == NULL || file == NULL || file->fd >= 0 ||
+      !velapoka_export_path_valid(file->name))
+    {
+      return -EINVAL;
+    }
+
+  ret = velapoka_path(path, sizeof(path), file->name);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  ret = velapoka_export_lock(session->storage);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  file->fd = open(path, O_RDONLY | O_CLOEXEC);
+  ret = file->fd < 0 ? -errno : OK;
+  if (ret == OK)
+    {
+      ret = fstat(file->fd, &st) < 0 ? -errno : OK;
+      if (ret == OK && (st.st_size < 0 || !S_ISREG(st.st_mode)))
+        {
+          ret = -EIO;
+        }
+
+      if (ret == OK)
+        {
+          file->size = strcmp(file->name, VELAPOKA_STORAGE_RESULTS) == 0 ?
+                       session->length :
+                       (uint64_t)st.st_size;
+        }
+    }
+
+  pthread_mutex_unlock(&session->storage->io_lock);
+  if (ret < 0 && file->fd >= 0)
+    {
+      close(file->fd);
+      file->fd = -1;
+    }
+
+  return ret;
+}
+
+int velapoka_storage_upload_failure(FAR struct velapoka_storage_s *storage,
+                                    FAR const char *name, int error)
+{
+  char path[VELAPOKA_STORAGE_PATH_SIZE];
+  char line[160];
+  struct timespec now;
+  int fd;
+  int ret;
+  int length;
+
+  if (storage == NULL || !velapoka_export_path_valid(name))
+    {
+      return -EINVAL;
+    }
+
+  ret = velapoka_path(path, sizeof(path), "upload-errors.jsonl");
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  length = snprintf(line, sizeof(line),
+                    "{\"uptime_ms\":%" PRIu64 ",\"file\":\"%s\","
+                    "\"error\":%d}\n",
+                    (uint64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000,
+                    name, error);
+  ret = velapoka_export_lock(storage);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0666);
+  ret = fd < 0 ? -errno : OK;
+  if (fd >= 0)
+    {
+      ret = velapoka_write_all(fd, (FAR const uint8_t *)line, length);
+      if (ret == OK && fsync(fd) < 0)
+        {
+          ret = -errno;
+        }
+
+      close(fd);
+    }
+
+  pthread_mutex_unlock(&storage->io_lock);
+  return ret;
+}
+
+ssize_t velapoka_storage_export_read(
+  FAR struct velapoka_export_s *session,
+  FAR struct velapoka_export_file_s *file, uint64_t offset,
+  FAR void *buffer, size_t size)
+{
+  ssize_t ret;
+
+  if (session == NULL || file == NULL || file->fd < 0 || buffer == NULL ||
+      offset > file->size)
+    {
+      return -EINVAL;
+    }
+
+  if (file->size - offset < size)
+    {
+      size = file->size - offset;
+    }
+
+  ret = velapoka_export_lock(session->storage);
+  if (ret < 0)
+    {
+      return ret;
+    }
+
+  if (lseek(file->fd, offset, SEEK_SET) < 0)
+    {
+      ret = -errno;
+    }
+  else
+    {
+      ret = read(file->fd, buffer, size);
+      if (ret < 0)
+        {
+          ret = -errno;
+        }
+    }
+
+  pthread_mutex_unlock(&session->storage->io_lock);
+  return ret;
+}
+
+void velapoka_storage_export_end(FAR struct velapoka_export_s *session)
+{
+  if (session != NULL)
+    {
+      if (session->stream != NULL)
+        {
+          fclose(session->stream);
+        }
+
+      free(session);
+    }
 }

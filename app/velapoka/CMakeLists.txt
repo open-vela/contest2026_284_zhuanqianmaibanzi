@@ -21,6 +21,7 @@ if(CONFIG_EXAMPLES_VELAPOKA)
     velapoka_inspect.c
     velapoka_main.c
     velapoka_network.c
+    velapoka_upload.c
     velapoka_state.c
     velapoka_storage.c
     velapoka_ui.c)
