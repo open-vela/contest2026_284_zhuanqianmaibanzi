@@ -86,6 +86,16 @@ struct velapoka_ui_s
   lv_obj_t *preview_card;
   lv_obj_t *difference_boxes[VELAPOKA_INSPECT_MAX_BOXES];
   lv_obj_t *fps_label;
+  lv_obj_t *view_label;
+  lv_obj_t *box_layer;
+  lv_obj_t *data_page;
+  lv_obj_t *data_overlay;
+  lv_obj_t *data_network;
+  lv_obj_t *data_storage;
+  lv_obj_t *data_progress;
+  lv_obj_t *data_capacity;
+  lv_obj_t *data_upload;
+  lv_obj_t *data_test;
   FAR uint16_t *preview_pixels;
   uint16_t gray_rgb565[256];
   uint16_t preview_xmap[VELAPOKA_PREVIEW_WIDTH];
@@ -96,6 +106,8 @@ struct velapoka_ui_s
   unsigned int action_count;
   enum velapoka_ui_action_e pending_action;
   bool preview_seen;
+  bool preview_frozen;
+  lv_timer_t *resume_timer;
 };
 
 /****************************************************************************
@@ -212,6 +224,83 @@ static lv_obj_t *velapoka_button_create(lv_obj_t *parent, const char *text,
   lv_obj_set_style_text_color(label, COLOR_TEXT, 0);
   lv_obj_center(label);
   return button;
+}
+
+static void velapoka_data_event(lv_event_t *event)
+{
+  bool open = (uintptr_t)lv_event_get_user_data(event) != 0;
+
+  if (open)
+    {
+      velapoka_ui_open_data();
+    }
+  else
+    {
+      lv_obj_add_flag(g_ui.data_overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void velapoka_data_create(lv_obj_t *screen)
+{
+  lv_obj_t *label;
+  lv_obj_t *button;
+  lv_obj_t *track;
+
+  g_ui.data_overlay = lv_obj_create(screen);
+  lv_obj_remove_flag(g_ui.data_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(g_ui.data_overlay, VELAPOKA_SCREEN_WIDTH,
+                  VELAPOKA_SCREEN_HEIGHT);
+  lv_obj_set_style_pad_all(g_ui.data_overlay, 0, 0);
+  lv_obj_set_style_border_width(g_ui.data_overlay, 0, 0);
+  lv_obj_set_style_radius(g_ui.data_overlay, 0, 0);
+  lv_obj_set_style_bg_color(g_ui.data_overlay, COLOR_SCREEN, 0);
+
+  /* An opaque page does not blend a continuously changing live preview. */
+
+  lv_obj_set_style_bg_opa(g_ui.data_overlay, LV_OPA_COVER, 0);
+  g_ui.data_page = velapoka_card_create(g_ui.data_overlay, 112, 36,
+                                       800, 528);
+  lv_obj_set_style_bg_color(g_ui.data_page, COLOR_PANEL, 0);
+  label = velapoka_label_create(g_ui.data_page, "DATA MANAGEMENT",
+                                 24, 18, COLOR_TEXT);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
+  g_ui.data_network = velapoka_label_create(
+    g_ui.data_page, "Reading Ethernet status...", 24, 65, COLOR_TEXT);
+  lv_obj_set_width(g_ui.data_network, 752);
+  g_ui.data_storage = velapoka_label_create(
+    g_ui.data_page, "Reading SD capacity...", 24, 190, COLOR_TEXT);
+  lv_obj_set_width(g_ui.data_storage, 752);
+  track = velapoka_card_create(g_ui.data_page, 24, 275, 752, 14);
+  g_ui.data_capacity = lv_obj_create(track);
+  lv_obj_remove_style_all(g_ui.data_capacity);
+  lv_obj_set_size(g_ui.data_capacity, 0, 14);
+  lv_obj_set_style_bg_color(g_ui.data_capacity, COLOR_PRIMARY, 0);
+  lv_obj_set_style_bg_opa(g_ui.data_capacity, LV_OPA_COVER, 0);
+  g_ui.data_progress = velapoka_label_create(
+    g_ui.data_page, "Start the Windows receiver, then tap Upload.",
+    24, 310, COLOR_TEXT);
+  lv_obj_set_width(g_ui.data_progress, 752);
+  g_ui.data_test = velapoka_button_create(
+    g_ui.data_page, "Test PC", 24, 180, COLOR_PRIMARY_DARK,
+    VELAPOKA_UI_ACTION_TEST_PC);
+  lv_obj_set_y(g_ui.data_test, 445);
+  g_ui.data_upload = velapoka_button_create(
+    g_ui.data_page, "Upload / Retry", 224, 240, COLOR_PRIMARY,
+    VELAPOKA_UI_ACTION_UPLOAD);
+  lv_obj_set_y(g_ui.data_upload, 445);
+  button = velapoka_button_create(
+    g_ui.data_page, "Safe exit", 480, 140, COLOR_DANGER,
+    VELAPOKA_UI_ACTION_EXIT);
+  lv_obj_set_y(button, 445);
+  button = lv_button_create(g_ui.data_page);
+  lv_obj_set_pos(button, 632, 445);
+  lv_obj_set_size(button, 144, 54);
+  velapoka_button_style(button, COLOR_PRIMARY_DARK);
+  lv_obj_add_event_cb(button, velapoka_data_event, LV_EVENT_CLICKED, NULL);
+  label = lv_label_create(button);
+  lv_label_set_text(label, "Back");
+  lv_obj_center(label);
+  lv_obj_add_flag(g_ui.data_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void velapoka_slider_event(lv_event_t *event)
@@ -364,8 +453,8 @@ static void velapoka_left_create(lv_obj_t *screen, bool touch_online,
                          VELAPOKA_UI_ACTION_INSPECT);
   velapoka_button_create(panel, "Stop", 246, 104, COLOR_WARNING,
                          VELAPOKA_UI_ACTION_STOP);
-  velapoka_button_create(panel, "Exit", 360, 104, COLOR_DANGER,
-                         VELAPOKA_UI_ACTION_EXIT);
+  velapoka_button_create(panel, "Finish", 360, 104, COLOR_PRIMARY_DARK,
+                         VELAPOKA_UI_ACTION_FINISH);
 
   card = velapoka_card_create(panel, 18, 365, 456, 126);
   label = velapoka_label_create(card, "LATEST RESULT", 16, 13,
@@ -393,19 +482,30 @@ static void velapoka_right_create(lv_obj_t *screen, bool camera_online)
   lv_obj_t *roi;
   lv_obj_t *card;
   lv_obj_t *label;
+  lv_obj_t *button;
 
   label = velapoka_label_create(panel, "LIVE", 20, 20, COLOR_SUCCESS);
+  g_ui.view_label = label;
   lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
   g_ui.fps_label = velapoka_label_create(panel,
                                           camera_online ? "0 FPS" :
                                                           "OFFLINE",
                                           82, 25, COLOR_MUTED);
-  label = velapoka_label_create(panel, "PRODUCT  A-01", 345, 25,
-                                COLOR_TEXT);
+  button = lv_button_create(panel);
+  lv_obj_set_pos(button, 320, 10);
+  lv_obj_set_size(button, 158, 42);
+  velapoka_button_style(button, COLOR_PRIMARY_DARK);
+  lv_obj_add_event_cb(button, velapoka_data_event, LV_EVENT_CLICKED,
+                      (FAR void *)(uintptr_t)1);
+  label = lv_label_create(button);
+  lv_label_set_text(label, "Data / Upload");
+  lv_obj_center(label);
 
   preview = velapoka_card_create(panel, 18, 62, 460, 259);
   g_ui.preview_card = preview;
   lv_obj_set_style_bg_color(preview, COLOR_CARD_ALT, 0);
+  lv_obj_set_style_border_width(preview, 0, 0);
+  lv_obj_set_style_radius(preview, 0, 0);
   g_ui.preview_image = lv_image_create(preview);
   lv_obj_set_pos(g_ui.preview_image, 0, 0);
   lv_obj_set_size(g_ui.preview_image, VELAPOKA_PREVIEW_WIDTH,
@@ -418,7 +518,32 @@ static void velapoka_right_create(lv_obj_t *screen, bool camera_online)
                                           "CAMERA OFFLINE",
                           139, 113, COLOR_MUTED);
 
+  /* Keep all difference rectangles in a borderless, clipped ROI layer.
+   * The separate ROI outline does not add an offset to child coordinates.
+   */
+
+  g_ui.box_layer = lv_obj_create(preview);
+  lv_obj_remove_style_all(g_ui.box_layer);
+  lv_obj_remove_flag(g_ui.box_layer, LV_OBJ_FLAG_SCROLLABLE |
+                                    LV_OBJ_FLAG_CLICKABLE |
+                                    LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  lv_obj_set_pos(g_ui.box_layer,
+                 VELAPOKA_ROI_X * VELAPOKA_PREVIEW_WIDTH /
+                 VELAPOKA_INSPECT_WIDTH,
+                 VELAPOKA_ROI_Y * VELAPOKA_PREVIEW_HEIGHT /
+                 VELAPOKA_INSPECT_HEIGHT);
+  lv_obj_set_size(g_ui.box_layer,
+                  (VELAPOKA_ROI_X + VELAPOKA_ROI_WIDTH) *
+                  VELAPOKA_PREVIEW_WIDTH / VELAPOKA_INSPECT_WIDTH -
+                  VELAPOKA_ROI_X * VELAPOKA_PREVIEW_WIDTH /
+                  VELAPOKA_INSPECT_WIDTH,
+                  (VELAPOKA_ROI_Y + VELAPOKA_ROI_HEIGHT) *
+                  VELAPOKA_PREVIEW_HEIGHT / VELAPOKA_INSPECT_HEIGHT -
+                  VELAPOKA_ROI_Y * VELAPOKA_PREVIEW_HEIGHT /
+                  VELAPOKA_INSPECT_HEIGHT);
+
   roi = lv_obj_create(preview);
+  lv_obj_remove_style_all(roi);
   lv_obj_remove_flag(roi, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_pos(roi,
                  VELAPOKA_ROI_X * VELAPOKA_PREVIEW_WIDTH /
@@ -538,8 +663,10 @@ int velapoka_ui_create(bool touch_online, bool camera_online,
   velapoka_right_create(screen, camera_online);
   for (unsigned int i = 0; i < VELAPOKA_INSPECT_MAX_BOXES; i++)
     {
-      g_ui.difference_boxes[i] = lv_obj_create(g_ui.preview_card);
-      lv_obj_remove_flag(g_ui.difference_boxes[i], LV_OBJ_FLAG_SCROLLABLE);
+      g_ui.difference_boxes[i] = lv_obj_create(g_ui.box_layer);
+      lv_obj_remove_style_all(g_ui.difference_boxes[i]);
+      lv_obj_remove_flag(g_ui.difference_boxes[i], LV_OBJ_FLAG_SCROLLABLE |
+                                                LV_OBJ_FLAG_CLICKABLE);
       lv_obj_set_style_bg_opa(g_ui.difference_boxes[i], LV_OPA_TRANSP, 0);
       lv_obj_set_style_border_width(g_ui.difference_boxes[i], 3, 0);
       lv_obj_set_style_border_color(g_ui.difference_boxes[i],
@@ -549,8 +676,172 @@ int velapoka_ui_create(bool touch_online, bool camera_online,
       lv_obj_add_flag(g_ui.difference_boxes[i], LV_OBJ_FLAG_HIDDEN);
     }
 
+  velapoka_data_create(screen);
   lv_obj_invalidate(screen);
   return OK;
+}
+
+void velapoka_ui_open_data(void)
+{
+  lv_obj_remove_flag(g_ui.data_overlay, LV_OBJ_FLAG_HIDDEN);
+  g_ui.pending_action = VELAPOKA_UI_ACTION_TEST_PC;
+}
+
+void velapoka_ui_begin_shutdown(void)
+{
+  lv_obj_add_flag(g_ui.data_overlay, LV_OBJ_FLAG_HIDDEN);
+  velapoka_ui_set_preview_frozen(true);
+  velapoka_ui_clear_boxes();
+  g_ui.pending_action = VELAPOKA_UI_ACTION_NONE;
+}
+
+void velapoka_ui_shutdown_complete(bool error)
+{
+  lv_obj_t *screen = lv_screen_active();
+  lv_obj_t *button;
+  lv_obj_t *label;
+
+  lv_obj_clean(screen);
+  g_ui.pending_action = VELAPOKA_UI_ACTION_NONE;
+  label = velapoka_label_create(screen,
+                                error ? "SHUTDOWN ERROR" :
+                                        "SAFE EXIT COMPLETE",
+                                112, 150, error ? COLOR_DANGER :
+                                                 COLOR_SUCCESS);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
+  velapoka_label_create(screen,
+                        error ? "Storage error. Keep the SD card inserted." :
+                                "Storage closed. Safe to power off.",
+                        112, 210, COLOR_TEXT);
+  velapoka_label_create(screen,
+                        "Power off before removing SD; "
+                        "Open data reopens it.",
+                        112, 246, COLOR_MUTED);
+  button = velapoka_button_create(screen, "Restart", 112, 240,
+                                   COLOR_PRIMARY,
+                                   VELAPOKA_UI_ACTION_RESTART);
+  lv_obj_set_y(button, 330);
+  button = velapoka_button_create(screen, "Open data", 392, 240,
+                                   COLOR_PRIMARY_DARK,
+                                   VELAPOKA_UI_ACTION_REOPEN_DATA);
+  lv_obj_set_y(button, 330);
+}
+
+void velapoka_ui_release(void)
+{
+  /* Call only after the LVGL display and its widgets have been deleted. */
+
+  free(g_ui.preview_pixels);
+  memset(&g_ui, 0, sizeof(g_ui));
+}
+
+void velapoka_ui_update_data(
+  FAR const struct velapoka_upload_status_s *status, bool http_online)
+{
+  uint64_t total;
+  uint64_t free_space;
+  uint64_t used;
+  unsigned int percent;
+  bool busy;
+  FAR const char *state;
+  FAR const char *hint = "";
+
+  if (g_ui.data_page == NULL ||
+      lv_obj_has_flag(g_ui.data_overlay, LV_OBJ_FLAG_HIDDEN))
+    {
+      return;
+    }
+
+  lv_label_set_text_fmt(
+    g_ui.data_network,
+    "ETHERNET  %s     HTTP service: %s\n"
+    "IP: %s    Mask: %s\nMAC: %s\n"
+    "Windows: %s:%u    Last PC check: %s",
+    !status->link_known ? "UNKNOWN" : status->link_up ? "LINK UP" :
+    "NO CABLE", http_online ? "READY" : "OFFLINE", status->ip,
+    status->netmask, status->mac, CONFIG_EXAMPLES_VELAPOKA_UPLOAD_HOST,
+    CONFIG_EXAMPLES_VELAPOKA_UPLOAD_PORT,
+    status->receiver_online ? "OK" : "NOT READY");
+
+  total = status->storage.total_bytes;
+  free_space = status->storage.free_bytes;
+  used = total >= free_space ? total - free_space : 0;
+  percent = total > 0 ? used * 100 / total : 0;
+  lv_label_set_text_fmt(
+    g_ui.data_storage,
+    "SD: %s    Used: %" PRIu64 " MiB / %" PRIu64 " MiB (%u%%)\n"
+    "Available: %" PRIu64 " MiB    Records: %" PRIu32
+    "    FAIL records: %" PRIu32 "\nPending saves: %u",
+    status->storage_online ? "MOUNTED" : "OFFLINE", used / 1048576,
+    total / 1048576, percent, status->storage.available_bytes / 1048576,
+    status->storage.records, status->storage.fail_records,
+    status->storage.queued);
+  lv_obj_set_width(g_ui.data_capacity, percent * 752 / 100);
+  lv_obj_set_style_bg_color(g_ui.data_capacity,
+                            percent >= 90 ? COLOR_WARNING : COLOR_PRIMARY,
+                            0);
+
+  busy = status->state == VELAPOKA_UPLOAD_CHECKING ||
+         status->state == VELAPOKA_UPLOAD_SENDING;
+  if (busy)
+    {
+      lv_obj_add_state(g_ui.data_upload, LV_STATE_DISABLED);
+      lv_obj_add_state(g_ui.data_test, LV_STATE_DISABLED);
+    }
+  else
+    {
+      lv_obj_remove_state(g_ui.data_upload, LV_STATE_DISABLED);
+      lv_obj_remove_state(g_ui.data_test, LV_STATE_DISABLED);
+    }
+
+  switch (status->state)
+    {
+      case VELAPOKA_UPLOAD_CHECKING:
+        state = "CONNECTING TO PC";
+        break;
+      case VELAPOKA_UPLOAD_SENDING:
+        state = "UPLOADING (current file)";
+        break;
+      case VELAPOKA_UPLOAD_DONE:
+        state = "UPLOAD COMPLETE - PC confirmed saved";
+        hint = "New detections are included in the next upload.";
+        break;
+      case VELAPOKA_UPLOAD_ERROR:
+        state = "UPLOAD / CONNECTION FAILED";
+        hint = status->error == -ENOENT ?
+               "No saved records, or image missing." :
+               status->error == -ENODEV ? "Check SD / Ethernet." :
+               "See PC log and stage; tap Retry.";
+        break;
+      case VELAPOKA_UPLOAD_PARTIAL:
+        state = "INCOMPLETE - not all files confirmed";
+        hint = status->failure_log_error ?
+               "SD error log failed; keep PC log and retry." :
+               status->results_withheld ?
+               "New results.jsonl withheld; see upload-errors.jsonl." :
+               "Check PC journal and retry to confirm the batch.";
+        break;
+      default:
+        state = "READY - upload saved records and FAIL images";
+        hint = "Original SD files are kept. Same files are skipped.";
+        break;
+    }
+
+  percent = status->file_size > 0 ?
+            status->file_sent * 100 / status->file_size : 0;
+  lv_label_set_text_fmt(g_ui.data_progress,
+                        "%s\nStage: %s   %" PRIu64 " s   %" PRIu64
+                        " KiB/s\n%s %u%%   Saved: %u   Skipped: %u"
+                        "   Failed: %u   Retry: %u\n"
+                        "Last failed: %s   Error: %d\n%s",
+                        state, status->phase, status->elapsed_ms / 1000,
+                        status->elapsed_ms > 0 ?
+                        status->bytes_sent * 1000 /
+                        status->elapsed_ms / 1024 : 0,
+                        status->file, percent, status->sent_files,
+                        status->skipped_files, status->failed_files,
+                        status->retries, status->last_failed, status->error,
+                        hint);
 }
 
 int velapoka_ui_update_preview(FAR const uint8_t *gray, size_t size,
@@ -569,6 +860,12 @@ int velapoka_ui_update_preview(FAR const uint8_t *gray, size_t size,
     }
 
   if (g_ui.preview_seen && sequence == g_ui.last_sequence)
+    {
+      return OK;
+    }
+
+  if (g_ui.preview_frozen ||
+      !lv_obj_has_flag(g_ui.data_overlay, LV_OBJ_FLAG_HIDDEN))
     {
       return OK;
     }
@@ -623,6 +920,26 @@ int velapoka_ui_update_preview(FAR const uint8_t *gray, size_t size,
     }
 
   return OK;
+}
+
+void velapoka_ui_set_preview_frozen(bool frozen)
+{
+  if (g_ui.resume_timer != NULL)
+    {
+      lv_timer_delete(g_ui.resume_timer);
+      g_ui.resume_timer = NULL;
+    }
+
+  g_ui.preview_frozen = frozen;
+  lv_label_set_text(g_ui.view_label, frozen ? "CAPTURED" : "LIVE");
+  lv_label_set_text(g_ui.fps_label, frozen ? "FROZEN" : "0 FPS");
+  lv_obj_set_x(g_ui.fps_label, frozen ? 152 : 82);
+  if (!frozen)
+    {
+      velapoka_ui_clear_boxes();
+      g_ui.preview_seen = false;
+      g_ui.fps_frames = 0;
+    }
 }
 
 void velapoka_ui_set_camera_online(bool online)
@@ -736,6 +1053,13 @@ void velapoka_ui_clear_boxes(void)
     }
 }
 
+static void velapoka_resume_preview(lv_timer_t *timer)
+{
+  (void)timer;
+  g_ui.resume_timer = NULL;
+  velapoka_ui_set_preview_frozen(false);
+}
+
 void velapoka_ui_set_result(FAR const struct velapoka_result_s *result)
 {
   lv_color_t color;
@@ -745,6 +1069,10 @@ void velapoka_ui_set_result(FAR const struct velapoka_result_s *result)
     {
       return;
     }
+
+  velapoka_ui_set_preview_frozen(true);
+  g_ui.resume_timer = lv_timer_create(velapoka_resume_preview, 2000, NULL);
+  lv_timer_set_repeat_count(g_ui.resume_timer, 1);
 
   color = result->pass ? COLOR_SUCCESS : COLOR_DANGER;
   lv_label_set_text(g_ui.result_label, result->pass ? "PASS" : "FAIL");
@@ -768,20 +1096,63 @@ void velapoka_ui_set_result(FAR const struct velapoka_result_s *result)
                         result->elapsed_ms);
 
   velapoka_ui_clear_boxes();
-  for (i = 0; i < result->box_count; i++)
+  if (result->pass)
+    {
+      return;
+    }
+
+  for (i = 0; i < result->box_count &&
+              i < VELAPOKA_INSPECT_MAX_BOXES; i++)
     {
       FAR const struct velapoka_box_s *box = &result->boxes[i];
       lv_obj_t *object = g_ui.difference_boxes[i];
+      uint32_t x1 = box->x;
+      uint32_t y1 = box->y;
+      uint32_t x2 = x1 + box->width;
+      uint32_t y2 = y1 + box->height;
+
+      if (x1 < VELAPOKA_ROI_X)
+        {
+          x1 = VELAPOKA_ROI_X;
+        }
+
+      if (y1 < VELAPOKA_ROI_Y)
+        {
+          y1 = VELAPOKA_ROI_Y;
+        }
+
+      if (x2 > VELAPOKA_ROI_X + VELAPOKA_ROI_WIDTH)
+        {
+          x2 = VELAPOKA_ROI_X + VELAPOKA_ROI_WIDTH;
+        }
+
+      if (y2 > VELAPOKA_ROI_Y + VELAPOKA_ROI_HEIGHT)
+        {
+          y2 = VELAPOKA_ROI_Y + VELAPOKA_ROI_HEIGHT;
+        }
+
+      if (x2 <= x1 || y2 <= y1)
+        {
+          continue;
+        }
 
       lv_obj_set_pos(object,
-                     box->x * VELAPOKA_PREVIEW_WIDTH /
+                     x1 * VELAPOKA_PREVIEW_WIDTH /
+                     VELAPOKA_INSPECT_WIDTH -
+                     VELAPOKA_ROI_X * VELAPOKA_PREVIEW_WIDTH /
                      VELAPOKA_INSPECT_WIDTH,
-                     box->y * VELAPOKA_PREVIEW_HEIGHT /
+                     y1 * VELAPOKA_PREVIEW_HEIGHT /
+                     VELAPOKA_INSPECT_HEIGHT -
+                     VELAPOKA_ROI_Y * VELAPOKA_PREVIEW_HEIGHT /
                      VELAPOKA_INSPECT_HEIGHT);
       lv_obj_set_size(object,
-                      box->width * VELAPOKA_PREVIEW_WIDTH /
+                      x2 * VELAPOKA_PREVIEW_WIDTH /
+                      VELAPOKA_INSPECT_WIDTH -
+                      x1 * VELAPOKA_PREVIEW_WIDTH /
                       VELAPOKA_INSPECT_WIDTH,
-                      box->height * VELAPOKA_PREVIEW_HEIGHT /
+                      y2 * VELAPOKA_PREVIEW_HEIGHT /
+                      VELAPOKA_INSPECT_HEIGHT -
+                      y1 * VELAPOKA_PREVIEW_HEIGHT /
                       VELAPOKA_INSPECT_HEIGHT);
       lv_obj_remove_flag(object, LV_OBJ_FLAG_HIDDEN);
     }

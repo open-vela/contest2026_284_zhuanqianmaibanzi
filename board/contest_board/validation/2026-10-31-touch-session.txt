@@ -1,0 +1,75 @@
+VelaPoka touch-session/receiver fix candidate -- 2026-10-31
+
+Evidence: Desktop video 飞书20261031-203846.mp4, plus user clarification
+that the old application ultimately shows SAFE EXIT COMPLETE and the small
+box is red. No photograph of that box was supplied. No hardware writes.
+
+Behavior changes:
+- Finish stops the inspection workflow but retains UI, SD and data services.
+- Safe exit is in the Data page; old shutdown stages now have visible and
+  serial progress messages, with the opaque Data overlay dismissed first.
+- The completed shutdown page keeps LVGL/input alive and contains Restart
+  and Open data actions. The outer application loop destroys the old UI,
+  frees its preview memory and reinitializes all services before reuse.
+- Open data therefore does not dereference the previously freed storage.
+- Result input is frozen when submitted; red boxes cannot follow a later
+  live scene. PASS hides boxes. FAIL boxes are bounded to the ROI, inside a
+  separate clipped borderless layer. Empty/outside boxes are ignored and a
+  corrupt box_count is capped at the fixed array length.
+- Opaque Data page and paused occluded preview reduce redraw work. No
+  low-level DSI/DMA timing changes; visible tearing remains a board test.
+- Receiver explicitly uses Split(char[], StringSplitOptions), not the
+  unsupported Split(char, StringSplitOptions) in the old prebuilt EXE.
+
+Build: PASS, exit 0
+Command (workspace root):
+./build.sh vendor/openvela/boards/contest2026_284_board/configs/velapoka -j4
+Compiler: retained riscv-none-elf-gcc toolchain
+Image: 850132 bytes, esptool checksum ee (valid)
+Firmware SHA256:
+f8d63bdf6be4108840b275e746817a42841f10b9f5a98c87a89bdb05b4e705ce
+Artifact (maintenance repository relative):
+out/firmware/2026-10-31/velapoka/vela_nuttx.bin
+Current nuttx/vela_nuttx.bin matches the archived image byte-for-byte.
+
+UI tests: PASS
+Actual pinned openvela LVGL branch, header version 9.1.0 (backported APIs).
+Compiled real velapoka_ui.c with -Wall -Wextra -Werror, rendered Data page.
+Assertions cover frozen/resumed pixels, hidden preview not being rewritten,
+PASS box suppression, clipped FAIL boundary, outside/empty boxes, corrupt
+count, Finish/Data/Safe exit actions, dedicated success/error end pages,
+Restart/Open data action dispatch and three UI create/destroy cycles.
+These tests do NOT emulate board-level service restart or FAT remount.
+
+Upload tests: PASS, 8 tests
+Real C storage/upload sources with host mount/network stubs and the real
+C# receiver core; complete/repeat, CRC failure/retry, paths/limits,
+disconnect preservation, snapshots/backups, >4 MiB log, cancellation of a
+silent peer, absent receiver. Only loopback networking used.
+
+Receiver build: PASS
+Mono 6.8 compiler/runtime extracted into /tmp, no global package install.
+GUI EXE compiled with -warnaserror; title includes (2026-10-31).
+monodis verifies explicit char[] Split reference and Framework assembly refs.
+ZIP CRC integrity and packaged EXE equality: PASS.
+New EXE SHA256:
+c4a280d36c1c8f39272757ce8c95c6d35c1b352575c013d0ab15e27c2eef239c
+Release ZIP SHA256:
+6d04dafd94f0b65989b1ffc8793738c6097a5be1fd12bbd0aad41f5b14c31102
+Release:
+out/VelaPoka-Windows-Receiver-2026-10-31.zip
+Stable out/windows-receiver and out/VelaPoka-Windows-Receiver.zip updated.
+Old EXE and ZIP preserved in out/releases/2026-10-31/previous-receiver/.
+
+Style: C files passed NuttX checkpatch -f / nxstyle.
+Maintenance git diff --check: PASS.
+User application/BSP changes preserved, no commit or push performed.
+
+Logs (workspace relative): logs/standalone-2026-10-31/
+  build.log, ui-build.log, ui-tests.log, upload-tests.log, checkpatch.log,
+  receiver-memberrefs.txt, receiver-assemblyrefs.txt
+
+Not performed: flashing, actual Windows GUI execution, new board acceptance,
+repeated SD/CSI/network restart, power cycling or confirmation of tearing fix.
+Required next: touch-session-fix-2026-10-31.md board checklist, especially
+three full Safe exit -> Open data/Restart cycles and actual Windows upload.

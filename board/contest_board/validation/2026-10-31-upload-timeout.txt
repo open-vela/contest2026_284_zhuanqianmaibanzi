@@ -1,0 +1,61 @@
+VelaPoka upload timeout fix candidate — 2026-10-31 Asia/Shanghai
+
+User evidence:
+  Data-page display glitch has not recurred in the reported short test.
+  Last PC check is OK. Upload alone fails with NuttX -107 (ENOTCONN).
+  Windows receiver reports a transport read timeout.
+  This is not a completed hardware/Windows acceptance test of the new fix.
+
+Diagnosis reproduction before the fix:
+  /tmp/velapoka-upload-diagnose.JomtiK/probe.py
+  Real C storage/uploader + C# receiver, 400 ms per 4 KiB BMP read.
+  Fast upload and handshake-only controls pass; slow CRC scan fails in 5.72 s.
+  Linux error -104, not the NuttX hardware error -107. This reproduces a
+  timeout vulnerability, not a proof that all board failures share one cause.
+
+Fix:
+  Monotonic 1-second command-phase heartbeats while CRC scanning.
+  No heartbeat bytes inserted into raw FILE payloads.
+  PC send/receive idle timeout 30 seconds; device I/O poll/reply wait 30 s.
+  Device connect wait 3 s; 100 ms cancellation polls; SO_SNDTIMEO 3 s for
+  NuttX unbuffered send calls that may wait for ACKs despite O_NONBLOCK.
+  Stage retained on error, with filename; device syslog + PC phase errors.
+  SD system calls / storage-lock waits are not made cancellable by this fix.
+
+Validation:
+  ./build.sh vendor/openvela/boards/contest2026_284_board/configs/velapoka -j4
+    PASS, generated vela_nuttx.bin, esptool.py 4.8.1 image checksum ae valid.
+  tests/host/test_upload.py: 13 tests PASS, 31.934 s (final source run).
+    Includes slow 58,678-byte BMP with strict OLD 5-second C# receiver,
+    upload + repeat, >5 s raw payload pause, 5.5 s PC confirmation delay,
+    slow-CRC cancellation, bounded idle timeout with cleanup/stage logging,
+    and all original CRC/path/large-log/backup/disconnect/cancel checks.
+  Actual pinned openvela LVGL 9.1.0 host build / render / UI regression PASS.
+    Upload error phase text checked not to overlap action buttons.
+  NuttX checkpatch -f upload.c/upload.h/ui.c PASS; git diff --check PASS.
+  Windows GUI EXE built using temporary Mono 6.8 compiler, no global install.
+    IL verifies String.Split(char[], StringSplitOptions), not scalar-char API.
+    Windows GUI runtime not available here; desktop smoke test still required.
+
+Artifacts (relative to contest284-manifest):
+  out/firmware/2026-10-31/velapoka-upload-fix/vela_nuttx.bin
+    850812 bytes
+    SHA256 f5115ee43f81dd021b851bb5f75b90d35edf384bacef2cc0f58f77c2c648cd0e
+  out/VelaPoka-Windows-Receiver-2026-10-31-upload-fix.zip
+    20101 bytes
+    SHA256 ca1ba60412198a8144a2106f85a0f80c3d6d866c2680ae1d3bf62b400075b874
+  out/releases/2026-10-31/upload-fix/VelaPoka-Windows-Receiver/VelaPokaReceiver.exe
+    SHA256 d519300c45a0d4f226e2df4060943273b1381195437b1418a8d18b8258aece57
+    Window title: VelaPoka - Ethernet Receiver (2026-10-31 upload-fix)
+
+Logs (workspace root): logs/upload-fix-2026-10-31/
+  build.log, upload-tests.log, ui-tests.log, checkpatch.log,
+  receiver-build.log, receiver-memberrefs.txt, image-info.log
+UI simulation image: /tmp/velapoka-ui-20261031/data-upload-fix.png
+  Loopback PC address in this host-only image is intentional, not product IP.
+
+No board flashed, no SD data deleted, no IP/firewall changed, no commit/push.
+Update BOTH firmware and PC receiver, then test on externally powered board:
+  Test PC -> Upload -> verify JSONL/BMP -> duplicate skip -> retry after
+  disconnect -> Safe exit -> Open data/Restart. Preserve full stage logs if
+  anything still fails. Original dated firmware and PC package are retained.

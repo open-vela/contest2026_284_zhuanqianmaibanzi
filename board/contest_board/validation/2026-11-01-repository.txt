@@ -1,0 +1,54 @@
+VelaPoka repository handoff, 2026-11-01
+
+Scope
+  Maintenance repository: contest284-manifest
+  Branch: dev-ai-contest-2026
+  Base commit: 3942e4161166bf4a60ae5f1dc6716f8adfdd715c
+  Existing origin branch fetched before submission; base ahead/behind: 0/0.
+  No dependency repository commits, firmware rebuild, flashing or hardware tests.
+
+Upload integration rerun
+  Real application C storage/uploader and C# receiver core, Linux loopback.
+  Python bytecode disabled; temporary Mono 6.8 runtime/compiler used.
+  Command from maintenance repository:
+    PYTHONDONTWRITEBYTECODE=1 \
+    MONO_CFG_DIR=/tmp/velapoka-mono-20261031/root/etc \
+    MONO_PATH=/tmp/velapoka-mono-20261031/root/usr/lib/mono/4.5 \
+    python3 tests/host/test_upload.py \
+      --mono /tmp/velapoka-mono-20261031/root/usr/bin/mono-sgen \
+      --mcs /tmp/velapoka-mono-20261031/root/usr/lib/mono/4.5/mcs.exe -v
+  Result: Ran 27 tests in 38.035s; OK.
+  Includes CRC faults/retry/continue, missing images and manifest protection,
+  interruption/cancellation, slow I/O/heartbeat, lock/reply deadlines, persistent
+  failure log and bounded-cache allocation fallback. See tests/host/README.md.
+  Raw local log: logs/repository-2026-11-01/upload-host.log (workspace root).
+
+Actual pinned LVGL branch
+  Recompiled tests/host/ui_preview.c and app/velapoka/velapoka_ui.c with
+  -std=gnu11 -Wall -Wextra -Werror and existing pinned LVGL library.
+  LVGL header version: 9.1.0.
+  PASS: result resumes live preview after 2 seconds, keeps metrics.
+  PASS: frozen result frame, PASS suppression, ROI clipping, data redraw.
+  PASS: upload error stage is visible without overlapping buttons.
+  PASS: incomplete count, retry, speed, manifest warning and retry button.
+  PASS: shutdown page, restart/data actions, three UI reinitializations.
+  Main-thread action dispatch is tested, not actual camera/SD resource teardown.
+
+Static checks and retained outputs
+  NuttX checkpatch -f: main, storage, storage header, UI, UI header,
+  uploader and uploader header; exit 0, no findings.
+  Credential-pattern scan of pending source/docs/tools/tests: no findings.
+  Staged diff whitespace check passes excluding archived recovery *.patch files;
+  those preserve original patch context and upstream patch checksums unchanged.
+  Generated common/board symlink removed only from Git index, not filesystem;
+  link target remains a valid directory. Ignored for future local builds.
+  No out/ build products, toolchains or dependency checkouts staged.
+  Current local 1 MHz image remains unchanged:
+    bd4cc6c8c188b23cab85804424d7f146b00ec44f8e2a37e8741b4f3d7b2a5698
+  Local resilient firmware/receiver bundle remains unchanged:
+    ba90fe1cb06b937bc135d0d8b0ded22f639b163a1c8925b56dd18cac6bdb7575
+
+Acceptance boundary
+  Host tests do not substitute for ESP32-P4 real-board acceptance or Windows GUI.
+  New resilient behavior, three safe-exit resource reentries and 4 MHz still
+  require the hardware tests in DEVELOPMENT_PLAN.md. Product default is 1 MHz.

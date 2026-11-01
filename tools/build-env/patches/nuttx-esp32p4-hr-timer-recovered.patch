@@ -1,0 +1,36 @@
+diff --git a/arch/risc-v/src/common/espressif/esp_hr_timer.c b/arch/risc-v/src/common/espressif/esp_hr_timer.c
+index 9275468652..5699ff2a45 100644
+--- a/arch/risc-v/src/common/espressif/esp_hr_timer.c
++++ b/arch/risc-v/src/common/espressif/esp_hr_timer.c
+@@ -772,17 +772,31 @@ int esp_hr_timer_init(void)
+       spin_unlock_irqrestore(&priv->lock, flags);
+     }
+ 
++#ifdef CONFIG_ARCH_CHIP_ESP32P4_VENDOR
++  esp_setup_irq(SYSTIMER_TARGET2_INTR_SOURCE,
++                ESP_IRQ_PRIORITY_DEFAULT,
++                SYSTIMER_TRIGGER_TYPE);
++#else
+   esp_setup_irq(SYSTIMER_TARGET2_EDGE_INTR_SOURCE,
+                 ESP_IRQ_PRIORITY_DEFAULT,
+                 SYSTIMER_TRIGGER_TYPE);
++#endif
+ 
+   /* Attach the systimer interrupt */
+ 
++#ifdef CONFIG_ARCH_CHIP_ESP32P4_VENDOR
++  irq_attach(ESP_IRQ_SYSTIMER_TARGET2, (xcpt_t)esp_hr_timer_isr, NULL);
++#else
+   irq_attach(ESP_IRQ_SYSTIMER_TARGET2_EDGE, (xcpt_t)esp_hr_timer_isr, NULL);
++#endif
+ 
+   /* Enable the allocated CPU interrupt */
+ 
++#ifdef CONFIG_ARCH_CHIP_ESP32P4_VENDOR
++  up_enable_irq(ESP_IRQ_SYSTIMER_TARGET2);
++#else
+   up_enable_irq(ESP_IRQ_SYSTIMER_TARGET2_EDGE);
++#endif
+ 
+   g_hr_timer_initialized = true;
+ 

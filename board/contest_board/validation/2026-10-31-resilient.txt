@@ -1,0 +1,77 @@
+VelaPoka resilient candidate — 2026-10-31 Asia/Shanghai
+
+Baseline evidence:
+  User reports previous upload-fix now uploads normally; no Data glitch in
+  the reported short test. New resilient behavior is not board accepted yet.
+
+Implemented:
+  Inspection result held 2 s, then LIVE resumes, boxes cleared, metrics kept.
+  Explicit freeze/Stop/next capture/Finish/shutdown cancel the old UI timer.
+  Up to 3 attempts per file; 300/600 ms cancellable backoff; reconnect/reopen
+  before retry to avoid commands inside unfinished raw payloads.
+  Permanent local/CRC failures logged; continue other images. Persistent
+  network failure or untrusted manifest aborts instead of timing out for all
+  remaining files. Missing images withhold new results.jsonl; INCOMPLETE.
+  SD upload-errors.jsonl records uptime_ms/file/error, fsynced. PC device
+  upload-journal.jsonl records UTC failure reports and batch summaries.
+  PC rejects complete summaries without a confirmed results.jsonl.
+  VKP2/OK2 version check rejects old receiver before uploading. New PC still
+  supports legacy VKP1. Controlled LAN only, no TLS/authentication added.
+  <=64 KiB files cached for one-pass SD read, CRC then transmit same snapshot.
+  Cache allocation failure falls back to 4 KiB streaming/two passes.
+  Timed io_lock waits in usage/export/failure-log paths: 3 s. Network idle
+  waits ~30 s, connect ~3 s, send timeout 3 s, reply overall limit ~120 s even
+  with WAITs. No claim of forcibly interrupting stuck underlying SD calls.
+  Product default remains SPI 1 MHz. Separate velapoka_spi4m is experimental.
+
+Tests:
+  Real C storage/upload + real C# receiver core: 27 tests PASS, 43.227 s.
+  Slow BMP reads at 400 ms/4 KiB with strict old 5 s PC timeout pass; exactly
+  14 full-sized read calls vs old 28 for a 58,678-byte BMP. Host latency model,
+  not measured ESP32-P4 speed. Cache OOM fallback verified with 56 full-sized
+  reads for two images, successful upload.
+  Proxy corruption: permanent CRC failure x3 then later image uploads;
+  transient CRC failure recovers; lost final ACK reconnects and deduplicates.
+  Missing image preserves old PC manifest. SD failure log persists across
+  application restarts. Log write failure is visible without false success.
+  Transient SD read EIO retries; retry backoff cancels; malformed path aborts.
+  Actual host mutex timedlock expires after 3 s then recovers. WAIT total cap
+  tested by host-only compile override 500 ms; production remains 120 s.
+  Original CRC/paths/disconnect/large log/backups/cancel/absent PC tests pass.
+  Actual pinned LVGL 9.1.0 UI tests: PASS, including 2 s timer/cancel, ROI
+  clipping, metrics retention, INCOMPLETE layout/actions, 3 UI reinitializations.
+  UI/harness ASan + UBSan + leak checks: PASS; linked LVGL static library was
+  not itself rebuilt with sanitizer instrumentation.
+  NuttX checkpatch and git diff --check: PASS.
+  Windows EXE built with temporary Mono 6.8; IL Split(char[], options) checked.
+  Windows GUI runtime / real SD / CSI / Ethernet fault tests still required.
+
+Builds and artifacts:
+  4 MHz: ./build.sh .../configs/velapoka_spi4m -j4 PASS
+    out/firmware/2026-10-31/velapoka-resilient-4mhz/vela_nuttx.bin
+    852560 bytes
+    SHA256 d93a2a7645a51b8ba8a8dc87d922c3865157ffc0e73661e8fa433690de05187d
+  1 MHz: ./build.sh .../configs/velapoka -j4 PASS; active workspace restored.
+    out/firmware/2026-10-31/velapoka-resilient-1mhz/vela_nuttx.bin
+    852564 bytes
+    SHA256 bd4cc6c8c188b23cab85804424d7f146b00ec44f8e2a37e8741b4f3d7b2a5698
+  Full .config diff: only CONFIG_BASE_DEFCONFIG and MMCSD_SPICLOCK differ.
+  esptool.py 4.8.1 verifies both image checksums. Full builds retain existing
+  HAL/compiler warnings; no new application diagnostics in the tested paths.
+  PC: out/VelaPoka-Windows-Receiver-2026-10-31-resilient.zip
+    22147 bytes
+    SHA256 a77a9b9d1dfd0c22e2c9b89859967349661234a72d86c9e26c7cf3e92c741ea5
+  EXE SHA256 69a4fa97855518479b8d85b0d2e35e5378bb26d267567c9c490206908e7836ef
+    Window title: VelaPoka - Ethernet Receiver (2026-10-31 resilient)
+  Combined delivery: out/VelaPoka-Resilient-2026-10-31.zip, 927273 bytes
+    SHA256 ba90fe1cb06b937bc135d0d8b0ded22f639b163a1c8925b56dd18cac6bdb7575
+    Includes both binaries, PC EXE/source/launcher/README, and SHA256SUMS.
+
+Logs: workspace logs/resilient-2026-10-31/
+  upload-tests.log, ui-tests.log, ui-sanitizer.log, checkpatch.log,
+  build-4mhz.log, build-4mhz-final.log, build-1mhz-final.log,
+  receiver-build.log, receiver-memberrefs.txt, image-info-{1mhz,4mhz}.log
+UI mock: /tmp/velapoka-ui-20261031/data-resilient.png (loopback endpoint).
+No board flashed, SD originals deleted, IP/firewall changed or commit/push.
+Before using 4 MHz on demo data: back up SD, compare checksums, Safe exit,
+fully power off, read on Windows, cold start and verify history/template/IDs.

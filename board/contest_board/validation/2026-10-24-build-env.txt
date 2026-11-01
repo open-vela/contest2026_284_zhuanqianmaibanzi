@@ -1,0 +1,55 @@
+VelaPoka build environment recovery -- 2026-10-24
+
+Scope: restore the deleted public build workspace and build both ESP32-P4
+configurations. Preserve existing application/BSP edits. No flashing.
+
+Workspace: /home/benson/openvela-work
+Maintenance repository HEAD: 3942e4161166bf4a60ae5f1dc6716f8adfdd715c
+Maintenance tree: dirty, including standalone upload candidate changes.
+NuttX baseline: dd92bcf425738734d1b8aed09c2bd4dbe3f2e438
+apps baseline: dcc6a95c3b323e533c98fde8fb209f99e24f0fdd
+Compiler: riscv-none-elf-gcc (GCC) 13.4.0
+Image packager: esptool.py 4.8.1
+Manifest and patch provenance: tools/build-env/README.md
+
+Public sync: repo sync has finished successfully.
+Original HAL cache and user changes were preserved.
+Public patch replay in an isolated temporary Git index: PASS.
+Replayed baseline versus current NuttX working tree: identical.
+Maintenance git diff --check: PASS.
+
+Commands (workspace root):
+./build.sh vendor/openvela/boards/contest2026_284_board/configs/nsh -j4
+./build.sh vendor/openvela/boards/contest2026_284_board/configs/velapoka -j4
+
+Both final commands exited 0 and generated vela_nuttx.bin.
+Full compilation followed by incremental rebuilds after restoring historical
+patches; failed attempts and dependency preparation logs remain in logs/.
+These are build results, not new real-board acceptance results.
+
+Artifacts relative to the maintenance repository:
+out/firmware/2026-10-24/nsh/vela_nuttx.bin
+  size: 252956 bytes
+  SHA256: f6243071b3bea8d2fc6e25125a9c57ca3c228919bef48f107712d8194c968835
+  esptool image checksum: 38 (valid)
+out/firmware/2026-10-24/velapoka/vela_nuttx.bin
+  size: 848880 bytes
+  SHA256: 38bb12c7d4a620f7890d6b78bfd371deba77d232d1a02b2447dd99cdee4dc199
+  esptool image checksum: 6f (valid)
+
+Each configuration directory also contains nuttx (ELF), nuttx.map, .config,
+generated defconfig and build.log. Product compile-attempt logs preserve
+the application and LVGL compilation preceding the final incremental link.
+
+Product ELF symbols verified using riscv-none-elf-nm:
+400356ca T camtest_main
+4003683c T velapoka_main
+40038fbe T velapoka_storage_get_usage
+400399d8 T velapoka_ui_create
+4003babe T velapoka_upload_request
+4003ba2a T velapoka_upload_start
+
+Current workspace nuttx/vela_nuttx.bin is the product image.
+No /dev/ttyACM* or /dev/ttyUSB* device was available during this recovery.
+No flash erase, flash write, board boot, touch or Windows desktop acceptance
+was performed. Next: standalone-upload-test.md real-board checklist.

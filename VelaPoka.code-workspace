@@ -1,0 +1,71 @@
+{
+  "folders": [
+    { "name": "VelaPoka", "path": "." },
+    { "name": "NuttX", "path": "../nuttx" },
+    { "name": "NuttX Apps", "path": "../apps" }
+  ],
+  "settings": {
+    "terminal.integrated.cwd": "${workspaceFolder:VelaPoka}/..",
+    "files.exclude": {
+      "**/.git": true,
+      "**/__pycache__": true,
+      "**/*.o": true,
+      "**/*.a": true,
+      "**/.built": true,
+      "**/.depend": true,
+      "**/Make.dep": true,
+      "**/esp-hal-3rdparty": true,
+      "**/esp-hosted": true
+    },
+    "search.followSymlinks": false,
+    "search.exclude": {
+      "**/out/**": true,
+      "**/logs/wx719/**": true,
+      "**/esp-hal-3rdparty/**": true,
+      "**/esp-hosted/**": true,
+      "**/*.map": true,
+      "**/*.hex": true,
+      "**/nuttx.bin": true,
+      "**/vela_nuttx.bin": true
+    },
+    "files.watcherExclude": {
+      "**/.git/objects/**": true,
+      "**/.git/subtree-cache/**": true,
+      "**/out/**": true,
+      "**/logs/wx719/**": true,
+      "**/esp-hal-3rdparty/**": true,
+      "**/esp-hosted/**": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "VelaPoka: build product",
+        "type": "process",
+        "command": "${workspaceFolder:VelaPoka}/../build.sh",
+        "args": [
+          "vendor/openvela/boards/contest2026_284_board/configs/velapoka",
+          "-j4"
+        ],
+        "options": { "cwd": "${workspaceFolder:VelaPoka}/.." },
+        "group": { "kind": "build", "isDefault": true },
+        "problemMatcher": ["$gcc"],
+        "presentation": { "reveal": "always", "panel": "shared" }
+      },
+      {
+        "label": "VelaPoka: build NSH recovery",
+        "type": "process",
+        "command": "${workspaceFolder:VelaPoka}/../build.sh",
+        "args": [
+          "vendor/openvela/boards/contest2026_284_board/configs/nsh",
+          "-j4"
+        ],
+        "options": { "cwd": "${workspaceFolder:VelaPoka}/.." },
+        "group": "build",
+        "problemMatcher": ["$gcc"],
+        "presentation": { "reveal": "always", "panel": "shared" }
+      }
+    ]
+  }
+}

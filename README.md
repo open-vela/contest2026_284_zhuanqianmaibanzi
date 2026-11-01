@@ -1,5 +1,37 @@
 # VelaPoka 可配置视觉装配防错终端 BSP
 
+2026-11-01：整理独立展示、上传容错、Windows 接收端及构建恢复资料上库，
+完整改动点与验证边界见 [本次改动清单](board/contest_board/docs/change-summary-2026-11-01.md)。
+固件和 Windows EXE/ZIP 保留在本地 `out/`，不随源码提交。
+
+2026-10-31 resilient：上一版上传已由用户反馈成功。本次进一步实现结果两秒后
+自动恢复预览、单文件有限重试、失败记录后继续、缺图不发布新 JSONL，并对
+小 BMP 使用有界缓存减少重复读盘。提供 1 MHz 时钟基线版和待实板验证的
+4 MHz 速度候选，配套 PC 标题带 `resilient`。说明与边界见
+[容错和速度候选](board/contest_board/docs/upload-resilience-2026-10-31.md)。
+
+2026-10-31 upload-fix：用户确认 Data 页暂未再花屏、Test PC 成功，但上传仍报
+`-107`。修复已模拟复现的慢 SD 预校验保活缺口，放宽有限网络空闲超时，补充
+设备 Stage 和 PC 阶段日志。新版固件与 PC 程序需同时更新；实板上传待复测。
+说明见 [上传超时修复](board/contest_board/docs/upload-timeout-fix-2026-10-31.md)。
+
+2026-10-31 修复候选：主界面 `Finish` 后仍可上传；Data 页 `Safe exit` 完成后
+可点 `Restart` 或 `Open data` 重新进入。检测结果冻结，PASS 不画红框，FAIL
+框限制在 ROI 内；同时修复 Windows 接收端方法兼容问题。操作与待补实板项目见
+[触屏流程修复说明](board/contest_board/docs/touch-session-fix-2026-10-31.md)。
+
+日常开发可打开 [VelaPoka.code-workspace](VelaPoka.code-workspace)，
+目录用途与归档位置见 [工作区布局](tools/build-env/workspace-layout.md)。
+
+2026-10-24 独立展示增强：新增触屏 `Data / Upload` 页面，显示网口/IP/MAC、
+SD 总/已用/可用容量与上传状态；点击上传可将已写盘记录和 FAIL 图片发送到
+Windows 原生接收窗口，无需浏览器。源码在 `tools/windows-receiver/`，使用方法见
+[Windows 接收程序](tools/windows-receiver/README.md)，验收步骤见
+[独立展示上传验收](board/contest_board/docs/standalone-upload-test.md)。
+本次软件候选已通过主机联调及 ESP32-P4 目标构建，完整构建环境已恢复；
+仍待烧录、Windows 桌面及外部供电实板验收。恢复依据与构建方法见
+[构建环境恢复记录](tools/build-env/README.md)。
+
 > 当前比赛功能方案、实板基线、里程碑进度和新会话接手入口统一维护在
 > [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。旧章节如与计划文档冲突，
 > 以计划文档中的最新状态为准。
@@ -101,13 +133,12 @@ Windows 读取验收；开机自启动、独立 Exit、队列排空、FAT 卸载
 
 在 openvela 工作区根目录执行：
 
-```bash
-# 公共修复尚未合入基线时，仅首次执行。
-git -C nuttx apply \
-  ../vendor/openvela/boards/contest2026_284_board/upstream/nuttx/0001-riscv-espressif-fix-kconfig-menu.patch \
-  ../vendor/openvela/boards/contest2026_284_board/upstream/nuttx/0002-usrsock-guard-api-when-disabled.patch \
-  ../vendor/openvela/boards/contest2026_284_board/upstream/nuttx/0003-mmcsd-spi-verify-write-completion.patch
+2026-10-24 恢复工作区使用固定公共源码清单与完整 P4 公共补丁，详见
+[构建环境恢复记录](tools/build-env/README.md)。当前工作区已经应用公共补丁，
+不要重复执行；从原始公共基线恢复时，必须先包含 PR #371 的初始架构移植，
+不能只应用旧的 Kconfig 修复。
 
+```bash
 # 镜像打包需要 esptool >= 4.8。
 python3 -m pip install 'esptool>=4.8,<5'
 

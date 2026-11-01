@@ -81,6 +81,15 @@ config EXAMPLES_VELAPOKA_NETWORK_PORT
 	default 8080
 	depends on NET && NET_TCP
 
+config EXAMPLES_VELAPOKA_UPLOAD_HOST
+	string "Windows receiver IPv4 address"
+	default "10.0.0.1"
+
+config EXAMPLES_VELAPOKA_UPLOAD_PORT
+	int "Windows receiver TCP port"
+	range 1 65535
+	default 8899
+
 config EXAMPLES_VELAPOKA_NETWORK_PRIORITY
 	int "HTTP export worker priority"
 	default 85

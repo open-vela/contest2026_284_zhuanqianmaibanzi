@@ -1,0 +1,249 @@
+diff --git a/arch/risc-v/src/common/espressif/esp_spi.c b/arch/risc-v/src/common/espressif/esp_spi.c
+index 0884c19c2a4..46a5aad5f84 100644
+--- a/arch/risc-v/src/common/espressif/esp_spi.c
++++ b/arch/risc-v/src/common/espressif/esp_spi.c
+@@ -34,6 +34,7 @@
+ #include <stdint.h>
+ #include <stdbool.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <time.h>
+ 
+ #include <nuttx/arch.h>
+@@ -93,6 +94,25 @@
+ #define SPI2_IOMUX_MOSIPIN  5
+ #define SPI2_IOMUX_CLKPIN   4
+ #define SPI2_IOMUX_CSPIN    1
++#elif defined(CONFIG_ESPRESSIF_ESP32P4)
++#define SPI2_IOMUX_MISOPIN  10
++#define SPI2_IOMUX_MOSIPIN  8
++#define SPI2_IOMUX_CLKPIN   9
++#define SPI2_IOMUX_CSPIN    7
++
++/* ESP32-P4 renamed the SPI2 GPIO matrix signals from FSPI* to SPI2_*_PAD.
++ * Keep the common driver configuration below independent of that HAL API
++ * difference.
++ */
++
++#define FSPICS0_IN_IDX       SPI2_CS_PAD_IN_IDX
++#define FSPICS0_OUT_IDX      SPI2_CS_PAD_OUT_IDX
++#define FSPID_IN_IDX         SPI2_D_PAD_IN_IDX
++#define FSPID_OUT_IDX        SPI2_D_PAD_OUT_IDX
++#define FSPIQ_IN_IDX         SPI2_Q_PAD_IN_IDX
++#define FSPIQ_OUT_IDX        SPI2_Q_PAD_OUT_IDX
++#define FSPICLK_IN_IDX       SPI2_CK_PAD_IN_IDX
++#define FSPICLK_OUT_IDX      SPI2_CK_PAD_OUT_IDX
+ #endif
+ 
+ /* Check if Chip-Select pin will be controlled via software */
+@@ -186,9 +206,13 @@ struct esp_spi_priv_s
+ #endif
+   uint8_t nbits;                        /* Actual SPI send/receive bits once transmission */
+   uint8_t id;                           /* ID number of SPI interface */
++#ifndef CONFIG_ESPRESSIF_ESP32P4
+   uint8_t module;                       /* Module ID of SPI interface */
++#endif
+   spi_hal_context_t *ctx;               /* Context struct of common layer */
++#ifndef CONFIG_ESPRESSIF_ESP32P4
+   spi_hal_config_t *cfg;
++#endif
+   spi_hal_dev_config_t *dev_cfg;        /* Device configuration struct of common layer */
+   spi_hal_timing_param_t *timing_param; /* Timing struct of common layer */
+ };
+@@ -251,10 +275,9 @@ static void esp_spi_deinit(struct spi_dev_s *dev);
+ 
+ #ifdef CONFIG_ESPRESSIF_SPI2
+ 
+-static spi_hal_config_t cfg =
+-{
+-    0
+-};
++#ifndef CONFIG_ESPRESSIF_ESP32P4
++static spi_hal_config_t cfg = {0};
++#endif
+ 
+ static spi_hal_context_t ctx =
+ {
+@@ -281,7 +304,7 @@ static spi_hal_timing_param_t timing_param =
+     .no_compensate = 0,
+     .half_duplex = 0,
+     .input_delay_ns = 0,
+-#ifdef SPI_VIA_IOMUX
++#if SPI_VIA_IOMUX
+     .use_gpio = 0,
+ #else
+     .use_gpio = 1,
+@@ -353,9 +376,13 @@ static struct esp_spi_priv_s esp_spi2_priv =
+   .refs         = 0,
+   .lock         = NXMUTEX_INITIALIZER,
+   .id           = SPI2_HOST,
++#ifndef CONFIG_ESPRESSIF_ESP32P4
+   .module       = PERIPH_SPI2_MODULE,
++#endif
+   .nbits        = 0,
++#ifndef CONFIG_ESPRESSIF_ESP32P4
+   .cfg          = &cfg,
++#endif
+   .dev_cfg      = &dev_cfg,
+   .ctx          = &ctx,
+   .timing_param = &timing_param,
+@@ -493,11 +520,12 @@ static uint32_t esp_spi_setfrequency(struct spi_dev_s *dev,
+ {
+   struct esp_spi_priv_s *priv = (struct esp_spi_priv_s *)dev;
+ 
+-  if (priv->timing_param->clk_src_hz == frequency)
++  if (priv->timing_param->expected_freq == frequency &&
++      priv->dev_cfg->timing_conf.real_freq != 0)
+     {
+       /* Requested frequency is the same as the current frequency. */
+ 
+-      return priv->timing_param->clk_src_hz;
++      return priv->dev_cfg->timing_conf.real_freq;
+     }
+ 
+   priv->timing_param->expected_freq = frequency;
+@@ -506,15 +534,21 @@ static uint32_t esp_spi_setfrequency(struct spi_dev_s *dev,
+                                ESP_CLK_TREE_SRC_FREQ_PRECISION_APPROX,
+                                &priv->timing_param->clk_src_hz);
+ 
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++  spi_hal_cal_clock_conf(priv->timing_param,
++                         &priv->dev_cfg->timing_conf);
++#else
+   spi_hal_cal_clock_conf(priv->timing_param,
+-                         (int *)&(priv->timing_param->clk_src_hz),
+-                         &(priv->dev_cfg->timing_conf));
++                         (int *)&priv->timing_param->clk_src_hz,
++                         &priv->dev_cfg->timing_conf);
++#endif
+   spi_hal_setup_device(priv->ctx, priv->dev_cfg);
+ 
+   spiinfo("frequency=%" PRIu32 ", actual=%" PRIu32 "\n",
+-          priv->timing_param->expected_freq, priv->timing_param->clk_src_hz);
++          priv->timing_param->expected_freq,
++          (uint32_t)priv->dev_cfg->timing_conf.real_freq);
+ 
+-  return priv->timing_param->clk_src_hz;
++  return priv->dev_cfg->timing_conf.real_freq;
+ }
+ 
+ /****************************************************************************
+@@ -644,7 +678,6 @@ static void esp_spi_dma_exchange(struct esp_spi_priv_s *priv,
+     {
+       0
+     };
+-
+   if (tp == NULL)
+     {
+       tp = rp;
+@@ -750,9 +783,15 @@ static uint32_t esp_spi_poll_send(struct esp_spi_priv_s *priv, uint32_t wd)
+   trans.line_mode.cmd_lines = 0;
+   priv->ctx->trans_config = trans;
+ 
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++  spi_hal_setup_trans(priv->ctx, priv->dev_cfg, &trans);
++  spi_hal_push_tx_buffer(priv->ctx, &trans);
++  spi_hal_enable_data_line(priv->ctx->hw, true, true);
++#else
+   spi_ll_set_mosi_bitlen(priv->ctx->hw, priv->nbits);
+   spi_hal_prepare_data(priv->ctx, priv->dev_cfg, &trans);
+   spi_hal_setup_trans(priv->ctx, priv->dev_cfg, &trans);
++#endif
+   spi_hal_user_start(priv->ctx);
+ 
+   while (!spi_hal_usr_is_done(priv->ctx));
+@@ -820,6 +859,11 @@ static void esp_spi_poll_exchange(struct esp_spi_priv_s *priv,
+     {
+       0
+     };
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++  uint32_t dummy[SPI_MAX_BUF_SIZE / sizeof(uint32_t)];
++
++  memset(dummy, 0xff, sizeof(dummy));
++#endif
+ 
+   trans.cs_keep_active = priv->dev_cfg->cs_hold;
+   trans.line_mode.data_lines = 1;
+@@ -837,11 +881,21 @@ static void esp_spi_poll_exchange(struct esp_spi_priv_s *priv,
+       trans.tx_bitlen = transfer_size * 8;
+       trans.rx_bitlen = transfer_size * 8;
+       trans.rcv_buffer = (uint8_t *)rp;
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++      trans.send_buffer = tp != NULL ? (uint8_t *)tp : (uint8_t *)dummy;
++#else
+       trans.send_buffer = (uint8_t *)tp;
++#endif
+       priv->ctx->trans_config = trans;
+ 
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++      spi_hal_setup_trans(priv->ctx, priv->dev_cfg, &trans);
++      spi_hal_push_tx_buffer(priv->ctx, &trans);
++      spi_hal_enable_data_line(priv->ctx->hw, true, rp != NULL);
++#else
+       spi_hal_prepare_data(priv->ctx, priv->dev_cfg, &trans);
+       spi_hal_setup_trans(priv->ctx, priv->dev_cfg, &trans);
++#endif
+       spi_hal_user_start(priv->ctx);
+ 
+       while (!spi_hal_usr_is_done(priv->ctx));
+@@ -853,7 +907,10 @@ static void esp_spi_poll_exchange(struct esp_spi_priv_s *priv,
+         }
+ 
+       bytes_remaining -= transfer_size;
+-      tp += transfer_size;
++      if (tp != NULL)
++        {
++          tp += transfer_size;
++        }
+     }
+ }
+ 
+@@ -1076,7 +1133,16 @@ static void esp_spi_init(struct spi_dev_s *dev)
+   esp_gpio_matrix_out(config->clk_pin, config->clk_outsig, 0, 0);
+ #endif
+ 
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++  PERIPH_RCC_ATOMIC()
++    {
++      spi_ll_enable_bus_clock(priv->id, true);
++      spi_ll_reset_register(priv->id);
++      spi_ll_enable_clock(priv->id, true);
++    }
++#else
+   periph_module_enable(priv->module);
++#endif
+ 
+ #ifdef CONFIG_ESPRESSIF_SPI2_DMA
+   esp_spi_dma_init(dev);
+@@ -1091,8 +1157,12 @@ static void esp_spi_init(struct spi_dev_s *dev)
+   spi_ll_master_init(priv->ctx->hw);
+   spi_ll_enable_int(priv->ctx->hw);
+   spi_ll_set_mosi_delay(priv->ctx->hw, 0, 0);
++#else
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++  spi_hal_init(priv->ctx, priv->id);
+ #else
+   spi_hal_init(priv->ctx, priv->id, priv->cfg);
++#endif
+ #endif
+ 
+   priv->dev_cfg->timing_conf.clock_source = SPI_CLK_SRC_DEFAULT;
+@@ -1123,8 +1193,17 @@ static void esp_spi_deinit(struct spi_dev_s *dev)
+ {
+   struct esp_spi_priv_s *priv = (struct esp_spi_priv_s *)dev;
+ 
+-  periph_module_disable(priv->module);
+   spi_hal_deinit(priv->ctx);
+ 
++#ifdef CONFIG_ESPRESSIF_ESP32P4
++  PERIPH_RCC_ATOMIC()
++    {
++      spi_ll_enable_clock(priv->id, false);
++      spi_ll_enable_bus_clock(priv->id, false);
++    }
++#else
++  periph_module_disable(priv->module);
++#endif
++
+   priv->nbits     = 0;
+ }

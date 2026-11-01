@@ -1,0 +1,44 @@
+Date: 2026-10-24
+Scope: standalone data page + device push upload + Windows receiver candidate
+Platform: Linux host tests. NOT ESP32-P4 real-board or Windows desktop approval.
+
+Compiled actual application sources:
+  velapoka_storage.c + velapoka_upload.c
+  GCC -std=gnu11 -Wall -Wextra -Werror -pthread
+  Board network and FAT mount environment replaced by tests/host shims.
+
+C# receiver:
+  ReceiverCore.cs + ReceiverWindow.cs
+  Mono C# compiler 6.8.0.105, -target:winexe -langversion:5 -warnaserror
+  Output: PE32 Windows GUI .NET assembly, 15360 bytes
+  SHA256 d43639091f62a0a568d7da26269b04a62cc08d4d512cb17f7e9c03611f8d32d5
+  No Windows GUI execution is claimed by cross-compilation.
+
+TCP loopback tests (real device C sources against real C# receiver core):
+  PASS real client, FAT snapshot boundary, saved JSONL/BMP byte equality
+  PASS repeated upload: saved=0 skipped=2
+  PASS CRC mismatch rejected, retry accepted
+  PASS forbidden paths, negative and oversized lengths rejected
+  PASS interrupted file preserves prior complete destination, no .part remains
+  PASS changed JSONL creates old snapshot backup
+  PASS 5100283-byte JSONL exceeds previous HTTP 4 MiB limit, repeat skipped
+  PASS Exit cancellation of silent receiver in less than 2 seconds
+  PASS absent receiver reports upload error
+  unittest: 8 tests, OK
+
+Graphics:
+  Official LVGL 9.2.2 built with tests/host/lv_conf.h.
+  Actual velapoka_ui.c compiled with -Wall -Wextra -Werror and rendered to
+  a 1024x600 software framebuffer. Data page visual layout inspected.
+  velapoka_main.c syntax checked against actual LVGL NuttX entry headers;
+  only framebuffer ioctl environment supplied by host shim.
+
+NuttX checkpatch: modified/new production application C/H files PASS
+git diff --check: PASS
+
+Pending:
+  Restore full openvela workspace (root build.sh/apps/vendor/.repo missing).
+  Full target firmware build, flashing, power-only cold boot.
+  ESP32-P4 SD/PHY capacity and link display, concurrent preview/upload,
+  physical cable disconnection/recovery, upload cancellation and FAT unmount.
+  Actual Windows GUI startup, network adapter/firewall and disk persistence.

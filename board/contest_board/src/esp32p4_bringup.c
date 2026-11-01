@@ -363,6 +363,9 @@ int esp_bringup(void)
     {
       syslog(LOG_ERR, "ERROR: ESP-Hosted Wi-Fi initialization failed: %d\n",
              ret);
+      /* Wi-Fi is optional for the standalone Ethernet product. */
+
+      ret = OK;
     }
   else
     {

@@ -1,0 +1,76 @@
+diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
+index 731b046729..10f836bd3b 100644
+--- a/drivers/video/v4l2_cap.c
++++ b/drivers/video/v4l2_cap.c
+@@ -668,6 +668,10 @@ static void convert_to_imgdatafmt(FAR video_format_t *video,
+         data->pixelformat = IMGDATA_PIX_FMT_ENTROPY;
+         break;
+ 
++      case V4L2_PIX_FMT_SBGGR10P:
++        data->pixelformat = IMGDATA_PIX_FMT_SBGGR10P;
++        break;
++
+       default: /* V4L2_PIX_FMT_JPEG_WITH_SUBIMG */
+         data->pixelformat = IMGDATA_PIX_FMT_JPEG_WITH_SUBIMG;
+         break;
+@@ -715,6 +719,10 @@ static void convert_to_imgsensorfmt(FAR video_format_t *video,
+         sensor->pixelformat = IMGSENSOR_PIX_FMT_ENTROPY;
+         break;
+ 
++      case V4L2_PIX_FMT_SBGGR10P:
++        sensor->pixelformat = IMGSENSOR_PIX_FMT_SBGGR10P;
++        break;
++
+       default: /* V4L2_PIX_FMT_JPEG_WITH_SUBIMG */
+         sensor->pixelformat = IMGSENSOR_PIX_FMT_JPEG_WITH_SUBIMG;
+         break;
+@@ -1363,6 +1371,8 @@ static size_t get_bufsize(FAR video_format_t *vf)
+       case V4L2_PIX_FMT_RGB565X:
+       default:
+         return ret * 2;
++      case V4L2_PIX_FMT_SBGGR10P:
++        return ret * 5 / 4;
+       case V4L2_PIX_FMT_JPEG:
+       case V4L2_PIX_FMT_ENTROPY:
+         return ret;
+@@ -2631,6 +2641,7 @@ static int capture_try_fmt(FAR struct file *filep,
+       case V4L2_PIX_FMT_RGB565X:
+       case V4L2_PIX_FMT_JPEG:
+       case V4L2_PIX_FMT_ENTROPY:
++      case V4L2_PIX_FMT_SBGGR10P:
+       case V4L2_PIX_FMT_JPEG_WITH_SUBIMG:
+         nr_fmt = 1;
+         vf[CAPTURE_FMT_MAIN].width       = fmt->fmt.pix.width;
+diff --git a/include/nuttx/video/imgdata.h b/include/nuttx/video/imgdata.h
+index 74b8fbef2b..63c58e2ce7 100644
+--- a/include/nuttx/video/imgdata.h
++++ b/include/nuttx/video/imgdata.h
+@@ -50,6 +50,7 @@
+ #define IMGDATA_PIX_FMT_NV12             (8)
+ #define IMGDATA_PIX_FMT_ENTROPY          (9)
+ #define IMGDATA_PIX_FMT_RGB565X          (10)
++#define IMGDATA_PIX_FMT_SBGGR10P         (11)
+ 
+ /* Method access helper macros */
+ 
+@@ -58,7 +59,7 @@
+ #define IMGDATA_UNINIT(d) \
+   ((d)->ops->uninit ? (d)->ops->uninit(d) : -ENOTTY)
+ #define IMGDATA_SET_BUF(d, n, f, a, s) \
+-  ((d)->ops->set_buf ? (d)->ops->set_buf(d, n, f, a, s) : NULL)
++  ((d)->ops->set_buf ? (d)->ops->set_buf(d, n, f, a, s) : -ENOTTY)
+ #define IMGDATA_VALIDATE_FRAME_SETTING(d, n, f, i) \
+   ((d)->ops->validate_frame_setting ? \
+    (d)->ops->validate_frame_setting(d, n, f, i) : -ENOTTY)
+diff --git a/include/nuttx/video/imgsensor.h b/include/nuttx/video/imgsensor.h
+index 0273ad2d2e..9bc5592d8f 100644
+--- a/include/nuttx/video/imgsensor.h
++++ b/include/nuttx/video/imgsensor.h
+@@ -126,6 +126,7 @@
+ #define IMGSENSOR_PIX_FMT_NV12             (8)
+ #define IMGSENSOR_PIX_FMT_ENTROPY          (9)
+ #define IMGSENSOR_PIX_FMT_RGB565X          (10)
++#define IMGSENSOR_PIX_FMT_SBGGR10P         (11)
+ 
+ /* Method access helper macros */
+ 

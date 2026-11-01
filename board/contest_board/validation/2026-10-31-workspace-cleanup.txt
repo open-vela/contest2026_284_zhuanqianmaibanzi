@@ -1,0 +1,59 @@
+Workspace cleanup — 2026-10-31 Asia/Shanghai
+
+Scope:
+  User requested organizing the workspace and removing unneeded content.
+  Kept the full build environment and all current uncommitted source changes.
+  No git clean/reset/prune, make clean/distclean, rebuild, flash or push.
+
+Removed after verified recoverable archive:
+  recovery-backup/legacy-checks/.vendor-baseline-check-1786288232
+  recovery-backup/legacy-checks/.vendor-delivery-check-1786289082
+    These worktrees refer to the deleted contest284/.repo and have broken
+    apps/prebuilts links; not the active build tree. Original du totals:
+    351964 + 374096 KiB, approximately 709 MiB allocated.
+  contest284-manifest/tests/host/__pycache__
+    Only generated .pyc bytecode; test source retained and cache can regenerate.
+
+Archive:
+  recovery-backup/archives/legacy-checks-2026-10-31.tar.zst
+  170147463 bytes, approximately 162 MiB, allocated 170147840 bytes.
+  SHA256 75ad9b8be0cc148c0d43a1d10a749b8ad17c3c5425018f38fdf2c315c27ae397
+  Archive writer exit 0; zstd -t PASS; final tar --compare exit 0 before removal.
+  Restores original files/modes/hardlinks/symlinks; no dereference of old links.
+  Restore from workspace root without overwriting existing files:
+    tar --zstd --keep-old-files -xf recovery-backup/archives/legacy-checks-2026-10-31.tar.zst -C recovery-backup/legacy-checks/
+  Restoring does not repair historical Git/dependency paths.
+
+Space:
+  Directory footprint reduced from about 710 MiB to 163 MiB including archive.
+  Net reclaimed about 547 MiB. df-based estimate subtracting new archive:
+    573009920 bytes (~546.5 MiB); background filesystem activity can affect df.
+  No attempt to delete toolchains, project dependencies or active build caches.
+
+Navigation/cache hygiene:
+  out/README.md: identifies latest release, current image and recovery versions.
+  out/current -> releases/2026-10-31/resilient
+  Added Python bytecode ignore and VS Code cache hiding; updated WORKSPACE.md
+  and tools/build-env/workspace-layout.md with restore instructions.
+
+Preserved and checked:
+  .repo, build.sh, prebuilts/toolchains, all public source trees and mappings.
+  local/esp-hal-3rdparty with historical modifications.
+  upstream/nuttx including dirty arch/risc-v/src/common/espressif/esp_timerisr.c.
+  All AI/contest logs, submission materials, hardware/reference sources.
+  Current firmware, latest 1/4 MHz candidates, working upload-fix rollback,
+  original dated PC packages and NSH recovery images; no old links broken.
+  SHA checks for main/UI/upload/storage C, 1/4 MHz defconfigs and historical
+  timer modification: PASS unchanged.
+  Tracked app/board binary diff SHA before and after:
+    e66f92f61aa2126f28b83075e2dd8cc098a18c4488921e65ca87dca58a09bf9e
+  Current nuttx/vela_nuttx.bin SHA256 unchanged:
+    bd4cc6c8c188b23cab85804424d7f146b00ec44f8e2a37e8741b4f3d7b2a5698
+  nuttx/.config SHA256 unchanged:
+    4e51dbaa6cabb17b5d090b89026eb6dcc75af68bffc46e06beed4447f1dbc16b
+  Latest combined release ZIP SHA256 unchanged:
+    ba90fe1cb06b937bc135d0d8b0ded22f639b163a1c8925b56dd18cac6bdb7575
+  out/current/SHA256SUMS.txt: both binaries and PC EXE PASS.
+  Build/board/app/toolchain symlinks resolve; RISC-V GCC 13.4.0 executes.
+  VS Code workspace JSON parses; git diff --check PASS.
+  No new hardware/test acceptance claim; no need to reflash for this cleanup.
